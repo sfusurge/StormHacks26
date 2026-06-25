@@ -1,5 +1,21 @@
 import * as THREE from 'three';
 
+var jumpTracker = 0;
+var jumpCD = 3;
+
+function canJump(velocityY: number) : boolean {
+  if(jumpTracker <= 0){
+    jumpTracker = jumpCD;
+    return true;
+  }
+  if(velocityY >= 0 && velocityY <= 0.1){
+    jumpTracker--;
+  }else{
+    jumpTracker = jumpCD;
+  }
+  return false;
+}
+
 export function updateCharacter(ctx: any, dt: number) {
   if (!ctx.playerBody || !ctx.character) return;
 
@@ -42,10 +58,8 @@ export function updateCharacter(ctx: any, dt: number) {
     ctx.playerBody.velocity.z *= 0.9;
   }
 
-  if (ctx.keys[' ']) {
-    if (Math.abs(ctx.playerBody.velocity.y) < 0.1) {
-      ctx.playerBody.velocity.y = 6;
-    }
+  if (ctx.keys[' '] && canJump(ctx.playerBody.velocity.y)) {
+    ctx.playerBody.velocity.y = 4;
   }
 
   const p = ctx.playerBody.position;
