@@ -19,6 +19,7 @@ export class ThreeScene {
   disposed = false;
   loader: GLTFLoader;
   roomBox: THREE.Box3 | null = null;
+  mixer: THREE.AnimationMixer | null = null; // to play character animations
 
   // list of meshes used for camera collision checks
   collidableMeshes: THREE.Mesh[] = [];
@@ -163,7 +164,7 @@ export class ThreeScene {
     this.playerBody = body;
 
     // try loading the CesiumMan glb and replace the placeholder when ready
-    const url = new URL('../../assets/models/CesiumMan.glb', import.meta.url).href;
+    const url = new URL('../../assets/models/stormy/stormy_climb.glb', import.meta.url).href;
     this.loader.load(url, (g) => {
       const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
       // normalize scale
@@ -185,6 +186,14 @@ export class ThreeScene {
       this.scene.remove(placeholder);
       this.character = obj;
       this.scene.add(obj);
+      
+      // play character animation
+      if (g.animations.length > 0) {
+      this.mixer = new THREE.AnimationMixer(obj);
+      const action = this.mixer.clipAction(g.animations[0]);
+      action.play();
+      }
+
       this._alignCharacterToFloor();
 
       // nudge loaded character slightly backward instead
@@ -280,6 +289,7 @@ export class ThreeScene {
     const tick = () => {
       if (this.disposed) return;
       const dt = clock.getDelta();
+      this.mixer?.update(dt);
       try {
         this.world.step(1 / 60, dt, 3);
       } catch (e) {
