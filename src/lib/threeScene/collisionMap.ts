@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MeshBVH, acceleratedRaycast, type SerializedBVH } from 'three-mesh-bvh';
+import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
 
 /** Target max dimension when normalizing room GLBs (meters). */
 export const ROOM_TARGET_SIZE = 20;
@@ -8,11 +8,12 @@ export type CollisionMapData = {
   bounds: THREE.Box3;
   positions: Float32Array;
   indices: Uint32Array;
-  serializedBvh: SerializedBVH;
 };
 
 const MAGIC = 'SHCK';
-const VERSION = 1;
+const VERSION = 2;
+/** Large room meshes need a deeper BVH than the library default (40). */
+const BVH_MAX_DEPTH = 80;
 
 /** Scale room to target size, center on X/Z, and place floor at y=0. */
 export function normalizeRoomObject(obj: THREE.Object3D): THREE.Box3 {
@@ -48,7 +49,9 @@ export function decodeCollisionMap(buffer: ArrayBuffer): CollisionMapData {
 
   const version = view.getUint32(offset, true);
   offset += 4;
-  if (version !== VERSION) throw new Error(`Unsupported collision map version: ${version}`);
+  if (version !== 1 && version !== 2) {
+    throw new Error(`Unsupported collision map version: ${version}`);
+  }
 
   const bounds = new THREE.Box3(
     new THREE.Vector3(view.getFloat32(offset, true), view.getFloat32(offset + 4, true), view.getFloat32(offset + 8, true)),
@@ -61,23 +64,21 @@ export function decodeCollisionMap(buffer: ArrayBuffer): CollisionMapData {
   const indexCount = view.getUint32(offset, true);
   offset += 4;
 
-  const positions = new Float32Array(buffer, offset, vertexCount * 3);
+  const positions = new Float32Array(vertexCount * 3);
+  positions.set(new Float32Array(buffer, offset, vertexCount * 3));
   offset += vertexCount * 3 * 4;
 
-  const indices = new Uint32Array(buffer, offset, indexCount);
+  const indices = new Uint32Array(indexCount);
+  indices.set(new Uint32Array(buffer, offset, indexCount));
   offset += indexCount * 4;
 
-  const bvhJsonLen = view.getUint32(offset, true);
-  offset += 4;
-  const bvhJson = new TextDecoder().decode(new Uint8Array(buffer, offset, bvhJsonLen));
-  const serializedBvh = JSON.parse(bvhJson) as SerializedBVH;
+  // v1 files embed a broken pre-baked BVH JSON blob — skip it; we rebuild at load.
+  if (version === 1) {
+    const bvhJsonLen = view.getUint32(offset, true);
+    offset += 4 + bvhJsonLen;
+  }
 
-  return {
-    bounds,
-    positions: new Float32Array(positions),
-    indices: new Uint32Array(indices),
-    serializedBvh,
-  };
+  return { bounds, positions, indices };
 }
 
 function readAscii(view: DataView, byteOffset: number, length: number): string {
@@ -86,17 +87,32 @@ function readAscii(view: DataView, byteOffset: number, length: number): string {
   return s;
 }
 
-/** Invisible mesh with pre-built BVH for fast camera raycasts. */
-export function createCameraCollisionMesh(data: CollisionMapData): THREE.Mesh {
+function patchBvhRaycast() {
   if (!(THREE.Mesh.prototype as any).__bvhPatched) {
     THREE.Mesh.prototype.raycast = acceleratedRaycast;
     (THREE.Mesh.prototype as any).__bvhPatched = true;
   }
+}
+
+/** Invisible mesh with BVH for character + camera collision. */
+export async function createCameraCollisionMesh(
+  data: CollisionMapData,
+  onProgress?: (progress01: number) => void
+): Promise<THREE.Mesh> {
+  patchBvhRaycast();
 
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(data.positions.slice(), 3));
-  geometry.setIndex(new THREE.BufferAttribute(data.indices.slice(), 1));
-  geometry.boundsTree = MeshBVH.deserialize(data.serializedBvh, geometry);
+  geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+  geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
+
+  // Yield so the loading UI can paint before the main-thread BVH build.
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+  geometry.boundsTree = new MeshBVH(geometry, {
+    maxDepth: BVH_MAX_DEPTH,
+    maxLeafTris: 5,
+    onProgress: (progress) => onProgress?.(progress),
+  });
 
   const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ visible: false }));
   mesh.frustumCulled = false;

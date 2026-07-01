@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader';
-import { alignCharacterToFloor } from './threeScene/alignCharacterToFloor';
+import { alignCharacterToFloor, clampCharacterToRoom, snapCharacterToFloor } from './threeScene/alignCharacterToFloor';
 import { updateCharacter as updateCharacterInternal } from './threeScene/updateCharacter';
 import { updateCamera as updateCameraInternal } from './threeScene/updateCamera';
 import {
@@ -10,12 +10,6 @@ import {
   normalizeRoomObject,
 } from './threeScene/collisionMap';
 import { mergeRoomMeshesByMaterial } from './threeScene/mergeRoomMeshes';
-import {
-  createRapierWorld,
-  disposeRapier,
-  syncRapierFromCharacter,
-  type RapierContext,
-} from './threeScene/rapierPhysics';
 import { writable } from 'svelte/store';
 
 export class ThreeScene {
@@ -31,12 +25,12 @@ export class ThreeScene {
   disposed = false;
   loader: GLTFLoader;
   roomBox: THREE.Box3 | null = null;
+  collisionBounds: THREE.Box3 | null = null;
   roomLoaded = false;
   isLoading = writable(true);
 
   collidableMeshes: THREE.Mesh[] = [];
   cameraCollisionMesh: THREE.Mesh | null = null;
-  rapier: RapierContext | null = null;
 
   cameraYaw = 0;
   cameraPitch = 0;
@@ -166,8 +160,7 @@ export class ThreeScene {
       this.scene.remove(placeholder);
       this.character = obj;
       this.scene.add(obj);
-      this._alignCharacterToFloor();
-      if (this.rapier) syncRapierFromCharacter(this.rapier, obj);
+      this._snapToFloor();
     }, undefined, (err) => {
       console.warn('Failed to load character glb, using placeholder', err);
     });
@@ -175,10 +168,28 @@ export class ThreeScene {
 
   _syncPlayerToFloor() {
     if (!this.character) return;
-    if (this.roomBox) {
-      this.character.position.x = (this.roomBox.min.x + this.roomBox.max.x) / 2 ;
-      this.character.position.z = (this.roomBox.min.z + this.roomBox.max.z) / 2 - 6.1;
+    const box = this.collisionBounds ?? this.roomBox;
+    if (box) {
+      this.character.position.x = (box.min.x + box.max.x) / 2;
+      this.character.position.z = (box.min.z + box.max.z) / 2 - 6.1;
+      clampCharacterToRoom(this.character, box, this.characterMargin);
     }
+    this._snapToFloor();
+  }
+
+  _snapToFloor() {
+    if (!this.character) return;
+
+    const x = this.character.position.x;
+    const z = this.character.position.z;
+
+    if (
+      this.collidableMeshes.length > 0 &&
+      snapCharacterToFloor(this.character, x, z, this)
+    ) {
+      return;
+    }
+
     this._alignCharacterToFloor();
   }
 
@@ -190,15 +201,18 @@ export class ThreeScene {
     const collisionUrl = new URL('../../assets/collision/room_foundation.collision.bin', import.meta.url).href;
 
     try {
-      window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 90, stage: 'Loading collision...' } }));
+      window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 90, stage: 'Loading collision mesh...' } }));
       const collisionData = await loadCollisionMap(collisionUrl);
+      this.collisionBounds = collisionData.bounds;
 
-      this.cameraCollisionMesh = createCameraCollisionMesh(collisionData);
+      this.cameraCollisionMesh = await createCameraCollisionMesh(collisionData, (p) => {
+        const progress = 90 + Math.round(p * 8);
+        window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress, stage: 'Building collision tree...' } }));
+      });
       this.scene.add(this.cameraCollisionMesh);
       this.collidableMeshes = [this.cameraCollisionMesh];
 
-      this.rapier = await createRapierWorld(collisionData);
-      if (this.character) syncRapierFromCharacter(this.rapier, this.character);
+      this._syncPlayerToFloor();
 
       this.roomLoaded = true;
       window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 100, stage: 'Complete!' } }));
@@ -322,8 +336,6 @@ export class ThreeScene {
 
   dispose() {
     this.disposed = true;
-    disposeRapier(this.rapier);
-    this.rapier = null;
     this.renderer.dispose();
     (this.canvas as any).remove();
   }

@@ -7,14 +7,13 @@ import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import draco3d from 'draco3dgltf';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { MeshBVH } from 'three-mesh-bvh';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOM_TARGET_SIZE = 20;
 const MAGIC = 'SHCK';
-const VERSION = 1;
+const VERSION = 2;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -112,8 +111,7 @@ function buildCollisionFromRoom(rootObj) {
   return { bounds, positions: posArr, indices: idxArr };
 }
 
-function encodeCollisionFile(data, serializedBvh) {
-  const bvhJson = Buffer.from(JSON.stringify(serializedBvh), 'utf8');
+function encodeCollisionFile(data) {
   const header = Buffer.alloc(40);
   header.write(MAGIC, 0, 4, 'ascii');
   header.writeUInt32LE(VERSION, 4);
@@ -128,10 +126,8 @@ function encodeCollisionFile(data, serializedBvh) {
 
   const posBuf = Buffer.from(data.positions.buffer, data.positions.byteOffset, data.positions.byteLength);
   const idxBuf = Buffer.from(data.indices.buffer, data.indices.byteOffset, data.indices.byteLength);
-  const bvhLen = Buffer.alloc(4);
-  bvhLen.writeUInt32LE(bvhJson.length, 0);
 
-  return Buffer.concat([header, posBuf, idxBuf, bvhLen, bvhJson]);
+  return Buffer.concat([header, posBuf, idxBuf]);
 }
 
 function primitiveToGeometry(prim) {
@@ -222,14 +218,8 @@ async function main() {
     `Collision mesh: ${collisionData.positions.length / 3} verts, ${collisionData.indices.length} indices`
   );
 
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(collisionData.positions.slice(), 3));
-  geometry.setIndex(new THREE.BufferAttribute(collisionData.indices.slice(), 1));
-  const bvh = new MeshBVH(geometry);
-  const serializedBvh = MeshBVH.serialize(bvh, { cloneBuffers: true });
-
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
-  fs.writeFileSync(outPath, encodeCollisionFile(collisionData, serializedBvh));
+  fs.writeFileSync(outPath, encodeCollisionFile(collisionData));
   console.log('Wrote', outPath, `(${(fs.statSync(outPath).size / 1024 / 1024).toFixed(2)} MB)`);
 }
 

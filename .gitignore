@@ -2,3 +2,4 @@
 /.idea/
 /pnpm-lock.yaml
 /dist/
+/assets/collision/room_foundation.collision.bin

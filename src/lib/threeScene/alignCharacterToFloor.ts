@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { findSpawnFloorY } from './floorQuery';
 
 /** Align character feet to the room floor (Y only). */
 export function alignCharacterToFloor(character: THREE.Object3D | null, roomBox: THREE.Box3 | null) {
@@ -32,4 +33,24 @@ export function clampCharacterToRoom(
 export function getFootOffset(character: THREE.Object3D): number {
   const charBox = new THREE.Box3().setFromObject(character);
   return character.position.y - charBox.min.y;
+}
+
+/** Place character feet on the walkable floor at x/z. Returns false if no hit. */
+export function snapCharacterToFloor(
+  character: THREE.Object3D,
+  x: number,
+  z: number,
+  ctx: {
+    collidableMeshes: THREE.Mesh[];
+    raycaster: THREE.Raycaster;
+    roomBox?: THREE.Box3 | null;
+    collisionBounds?: THREE.Box3 | null;
+  }
+): boolean {
+  const floorY = findSpawnFloorY(ctx, x, z);
+  if (floorY === null) return false;
+
+  const footOffset = getFootOffset(character);
+  character.position.set(x, floorY + footOffset, z);
+  return true;
 }
