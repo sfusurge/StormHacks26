@@ -6,10 +6,16 @@ import { updateCharacter as updateCharacterInternal } from './threeScene/updateC
 import { updateCamera as updateCameraInternal } from './threeScene/updateCamera';
 import {
   createCameraCollisionMesh,
+  loadCollisionMap,
   normalizeRoomObject,
 } from './threeScene/collisionMap';
-import { buildCollisionFromRoom } from './threeScene/buildCollisionFromRoom';
 import { mergeRoomMeshesByMaterial } from './threeScene/mergeRoomMeshes';
+import {
+  createRapierWorld,
+  disposeRapier,
+  syncRapierFromCharacter,
+  type RapierContext,
+} from './threeScene/rapierPhysics';
 import { writable } from 'svelte/store';
 
 export class ThreeScene {
@@ -30,6 +36,7 @@ export class ThreeScene {
 
   collidableMeshes: THREE.Mesh[] = [];
   cameraCollisionMesh: THREE.Mesh | null = null;
+  rapier: RapierContext | null = null;
 
   cameraYaw = 0;
   cameraPitch = 0;
@@ -116,21 +123,7 @@ export class ThreeScene {
         console.log(`Merged room into ${mergedCount} draw calls`);
 
         this._syncPlayerToFloor();
-        this.roomLoaded = true;
-        window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 100, stage: 'Complete!' } }));
-        this.isLoading.set(false);
-
-        // BVH build is heavy — run after gameplay is enabled; uses same meshes as visuals.
-        setTimeout(() => {
-          try {
-            const collisionData = buildCollisionFromRoom(obj);
-            this.cameraCollisionMesh = createCameraCollisionMesh(collisionData);
-            this.scene.add(this.cameraCollisionMesh);
-            this.collidableMeshes = [this.cameraCollisionMesh];
-          } catch (err) {
-            console.warn('Collision mesh build failed; using room bounds only', err);
-          }
-        }, 0);
+        void this._initCollision();
       },
       (progress) => {
         const percent = (progress.loaded / progress.total) * 70;
@@ -174,6 +167,7 @@ export class ThreeScene {
       this.character = obj;
       this.scene.add(obj);
       this._alignCharacterToFloor();
+      if (this.rapier) syncRapierFromCharacter(this.rapier, obj);
     }, undefined, (err) => {
       console.warn('Failed to load character glb, using placeholder', err);
     });
@@ -190,6 +184,30 @@ export class ThreeScene {
 
   _alignCharacterToFloor() {
     alignCharacterToFloor(this.character, this.roomBox);
+  }
+
+  async _initCollision() {
+    const collisionUrl = new URL('../../assets/collision/room_foundation.collision.bin', import.meta.url).href;
+
+    try {
+      window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 90, stage: 'Loading collision...' } }));
+      const collisionData = await loadCollisionMap(collisionUrl);
+
+      this.cameraCollisionMesh = createCameraCollisionMesh(collisionData);
+      this.scene.add(this.cameraCollisionMesh);
+      this.collidableMeshes = [this.cameraCollisionMesh];
+
+      this.rapier = await createRapierWorld(collisionData);
+      if (this.character) syncRapierFromCharacter(this.rapier, this.character);
+
+      this.roomLoaded = true;
+      window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 100, stage: 'Complete!' } }));
+      this.isLoading.set(false);
+    } catch (err) {
+      console.error('Failed to load collision map — run `pnpm collision` after changing the room model', err);
+      this.roomLoaded = true;
+      this.isLoading.set(false);
+    }
   }
 
   makeInteractable() {
@@ -304,6 +322,8 @@ export class ThreeScene {
 
   dispose() {
     this.disposed = true;
+    disposeRapier(this.rapier);
+    this.rapier = null;
     this.renderer.dispose();
     (this.canvas as any).remove();
   }

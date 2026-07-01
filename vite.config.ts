@@ -3,6 +3,9 @@ import { defineConfig } from 'vite';
 export default defineConfig(async () => {
   const { svelte } = await import('@sveltejs/vite-plugin-svelte');
   return {
-    plugins: [svelte()]
+    plugins: [svelte()],
+    optimizeDeps: {
+      exclude: ['@dimforge/rapier3d-compat'],
+    },
   };
 });
