@@ -1,26 +1,35 @@
 import * as THREE from 'three';
 
-export function alignCharacterToFloor(character: THREE.Object3D | null, roomBox: THREE.Box3 | null, characterMargin = 1.5) {
+/** Align character feet to the room floor (Y only). */
+export function alignCharacterToFloor(character: THREE.Object3D | null, roomBox: THREE.Box3 | null) {
   if (!character) return;
   try {
     const charBox = new THREE.Box3().setFromObject(character);
-    if (roomBox) {
-      const floorY = roomBox.min.y;
-      const delta = floorY - charBox.min.y;
-      character.position.y += delta;
-
-      const margin = characterMargin;
-      const minX = roomBox.min.x + margin;
-      const maxX = roomBox.max.x - margin;
-      const minZ = roomBox.min.z + margin;
-      const maxZ = roomBox.max.z - margin;
-      character.position.x = THREE.MathUtils.clamp(character.position.x, minX, maxX);
-      character.position.z = THREE.MathUtils.clamp(character.position.z, minZ, maxZ);
-    } else {
-      const delta = 0 - charBox.min.y;
-      character.position.y += delta;
-    }
+    const floorY = roomBox ? roomBox.min.y : 0;
+    character.position.y += floorY - charBox.min.y;
   } catch (e) {
     console.warn('alignCharacterToFloor failed', e);
   }
+}
+
+export function clampCharacterToRoom(
+  character: THREE.Object3D,
+  roomBox: THREE.Box3,
+  margin = 0.35
+) {
+  character.position.x = THREE.MathUtils.clamp(
+    character.position.x,
+    roomBox.min.x + margin,
+    roomBox.max.x - margin
+  );
+  character.position.z = THREE.MathUtils.clamp(
+    character.position.z,
+    roomBox.min.z + margin,
+    roomBox.max.z - margin
+  );
+}
+
+export function getFootOffset(character: THREE.Object3D): number {
+  const charBox = new THREE.Box3().setFromObject(character);
+  return character.position.y - charBox.min.y;
 }
