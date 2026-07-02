@@ -1,40 +1,49 @@
 import * as THREE from 'three';
 
-export function updateCamera(ctx: any, dt: number) {
+const CAMERA_POSITION_LERP = 0.04;
+const CAMERA_YAW_FOLLOW = 0.08;
+const CAMERA_LOOK_LERP = 0.04;
+const CAMERA_COLLISION_LERP = 0.1;
+
+export function updateCamera(ctx: any) {
 // target is the character head position (used as camera focus)
   const target = new THREE.Vector3();
   if (ctx.character) target.copy((ctx.character as any).position || new THREE.Vector3());
   target.add(new THREE.Vector3(0, 0.6, 0));
 
+  const followDist = THREE.MathUtils.clamp(ctx.cameraDistance, ctx.minCameraDistance, ctx.maxCameraDistance);
   let desired = new THREE.Vector3();
 
 // orbit mode: compute spherical offset from yaw/pitch when dragging
   if (ctx.isPointerDown) {
     const yaw = ctx.cameraYaw;
     const pitch = THREE.MathUtils.clamp(ctx.cameraPitch, -Math.PI / 2 + 0.05, Math.PI / 2 - 0.05);
-    const r = THREE.MathUtils.clamp(ctx.cameraDistance, ctx.minCameraDistance, ctx.maxCameraDistance);
     const cosP = Math.cos(pitch);
     const offset = new THREE.Vector3(
-      r * cosP * Math.sin(yaw),
-      r * Math.sin(pitch),
-      r * cosP * Math.cos(yaw)
+      followDist * cosP * Math.sin(yaw),
+      followDist * Math.sin(pitch),
+      followDist * cosP * Math.cos(yaw)
     );
     desired.copy(target).add(offset);
 // third-person follow: position camera behind character based on facing
   } else {
-    const followDist = THREE.MathUtils.clamp(ctx.cameraDistance, ctx.minCameraDistance, ctx.maxCameraDistance);
-    const forward = new THREE.Vector3();
-    ctx.character.getWorldDirection(forward);
-    forward.y = 0;
-    if (forward.lengthSq() < 1e-6) forward.set(0, 0, 1);
-    forward.normalize();
-    desired.copy(target).addScaledVector(forward, -followDist);
-// raise camera above target slightly for better view
-    desired.y += Math.max(0.1, followDist * 0.12);
-// smoothly align camera yaw toward character facing
-    const desiredYaw = Math.atan2(forward.x, forward.z);
-    const yawDiff = (desiredYaw - ctx.cameraYaw + Math.PI) % (Math.PI * 2) - Math.PI;
-    ctx.cameraYaw += yawDiff * 0.35;
+    if (!ctx.isBackingUp) {
+      const forward = new THREE.Vector3();
+      ctx.character.getWorldDirection(forward);
+      forward.y = 0;
+      if (forward.lengthSq() < 1e-6) forward.set(0, 0, 1);
+      forward.normalize();
+      const followYaw = Math.atan2(forward.x, forward.z);
+      const yawDiff = (followYaw - ctx.cameraYaw + Math.PI) % (Math.PI * 2) - Math.PI;
+      ctx.cameraYaw += yawDiff * CAMERA_YAW_FOLLOW;
+    }
+
+    // Orbit at the smoothed camera yaw so turning does not swing collision rays inward.
+    desired.set(
+      target.x - Math.sin(ctx.cameraYaw) * followDist,
+      target.y + Math.max(0.1, followDist * 0.12),
+      target.z - Math.cos(ctx.cameraYaw) * followDist
+    );
   }
 
   if (ctx.roomBox) {
@@ -63,22 +72,28 @@ export function updateCamera(ctx: any, dt: number) {
     if (dirLen > 1e-6) {
       const dirNorm = dir.clone().normalize();
       const clampedDist = dirLen * alpha;
-      const smoothDist = THREE.MathUtils.lerp(dirLen, clampedDist, 0.9);
 
-      let finalDist = smoothDist;
+      let targetDist = clampedDist;
 // raycast toward desired position and shorten if a wall is hit
       try {
         ctx.raycaster.set(target, dirNorm);
-        ctx.raycaster.far = smoothDist;
+        ctx.raycaster.far = clampedDist;
         const hits = ctx.raycaster.intersectObjects(ctx.collidableMeshes, true);
         if (hits && hits.length) {
           const hitDist = hits[0].distance;
-          finalDist = Math.min(finalDist, Math.max(0.05, hitDist - 0.05));
+          targetDist = Math.min(targetDist, Math.max(0.05, hitDist - 0.05));
         }
-      } catch (e) {}
+      } catch {}
 
-// move camera inward along the ray to finalDist
-      const newPos = new THREE.Vector3().copy(target).addScaledVector(dirNorm, finalDist);
+      // Keep full follow distance when nothing is blocking; only pull in for real obstructions.
+      if (targetDist >= followDist - 0.02) targetDist = followDist;
+
+      if (ctx.smoothCameraDist == null) ctx.smoothCameraDist = followDist;
+      const distLerp = targetDist >= followDist - 0.01 ? 0.2 : CAMERA_COLLISION_LERP;
+      ctx.smoothCameraDist = THREE.MathUtils.lerp(ctx.smoothCameraDist, targetDist, distLerp);
+
+// move camera inward along the ray to the smoothed distance
+      const newPos = new THREE.Vector3().copy(target).addScaledVector(dirNorm, ctx.smoothCameraDist);
       desired.copy(newPos);
     } else {
       desired.copy(target);
@@ -96,6 +111,10 @@ export function updateCamera(ctx: any, dt: number) {
   }
 
 // smooth camera movement toward desired and look at target
-  ctx.camera.position.lerp(desired, 0.18);
-  ctx.camera.lookAt(target);
+  ctx.camera.position.lerp(desired, CAMERA_POSITION_LERP);
+  if (!ctx.smoothCameraLookTarget) {
+    ctx.smoothCameraLookTarget = target.clone();
+  }
+  ctx.smoothCameraLookTarget.lerp(target, CAMERA_LOOK_LERP);
+  ctx.camera.lookAt(ctx.smoothCameraLookTarget);
 }

@@ -17,7 +17,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "cannon-es": "^0.20.0",
-    "three": "^0.158.0"
+    "three": "^0.158.0",
+    "three-mesh-bvh": "^0.7.6"
   }
 }

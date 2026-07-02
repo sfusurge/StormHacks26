@@ -2,11 +2,13 @@
   import { onMount, onDestroy } from 'svelte';
   import Overlay from './components/Overlay.svelte';
   import InfoPanel from './components/InfoPanel.svelte';
+  import Loading from './components/Loading.svelte';
   import { ThreeScene } from './lib/ThreeScene';
 
   let show = false;
   let currentComponent: any = null;
   let scene: ThreeScene | null = null;
+  let isLoading = true;
 
   const components: Record<string, any> = {
     InfoPanel
@@ -26,6 +28,11 @@
     window.addEventListener('open-webview', openHandler as EventListener);
     const canvas = document.getElementById('three-canvas') as HTMLCanvasElement;
     scene = new ThreeScene(canvas);
+
+    scene.isLoading.subscribe(value => {
+      isLoading = value;
+    });
+
     return () => { scene?.dispose(); };
   });
   onDestroy(() => {
@@ -41,7 +48,11 @@
   <canvas id="three-canvas" />
 </div>
 
-{#if show}
+{#if isLoading}
+  <Loading />
+{/if}
+
+{#if show && !isLoading}
   <Overlay title="In-Scene Component" on:close={close}>
     {#if currentComponent}
       <svelte:component this={currentComponent} on:close={close} />
