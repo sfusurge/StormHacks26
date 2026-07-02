@@ -7,22 +7,39 @@ const _normal = new THREE.Vector3();
 /** Minimum face normal Y to count as walkable (allows ~65° ramps/stairs). */
 const MIN_WALKABLE_NORMAL_Y = 0.42;
 
-/** Lowest upward-facing hit — used when casting from above (spawn snap). */
-export function pickLowestFloorY(hits: THREE.Intersection[]): number | null {
-    let floorY: number | null = null;
-    for (const hit of hits) {
-        if (!hit.face) continue;
-        _normal.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
-        if (_normal.y < MIN_WALKABLE_NORMAL_Y) continue;
-        if (floorY === null || hit.point.y < floorY) floorY = hit.point.y;
-    }
-    return floorY;
-}
-
 function isWalkableHit(hit: THREE.Intersection): boolean {
     if (!hit.face) return false;
     _normal.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
     return _normal.y >= MIN_WALKABLE_NORMAL_Y;
+}
+
+/**
+ * Walkable surface closest to the expected foot height.
+ * Penalizes surfaces well above the reference so roof hits lose to the floor.
+ */
+export function pickClosestWalkableFloorY(
+    hits: THREE.Intersection[],
+    referenceY: number,
+    roomMinY = -Infinity
+): number | null {
+    let best: number | null = null;
+    let bestScore = Infinity;
+
+    for (const hit of hits) {
+        if (!isWalkableHit(hit)) continue;
+        const y = hit.point.y;
+        if (y < roomMinY - 0.05) continue;
+
+        const dy = y - referenceY;
+        const score = dy > 0.5 ? dy + 10 : Math.abs(dy);
+
+        if (score < bestScore) {
+            bestScore = score;
+            best = y;
+        }
+    }
+
+    return best;
 }
 
 /**
@@ -50,7 +67,7 @@ export function findFloorY(
         if (isWalkableHit(hit)) return hit.point.y;
     }
 
-    return null;
+    return findSpawnFloorY(ctx, x, z, feetY);
 }
 
 export function findSpawnFloorY(
@@ -61,9 +78,11 @@ export function findSpawnFloorY(
         collisionBounds?: THREE.Box3 | null;
     },
     x: number,
-    z: number
+    z: number,
+    referenceY?: number
 ): number | null {
     const roomMinY = ctx.collisionBounds?.min.y ?? ctx.roomBox?.min.y ?? 0;
+    const ref = referenceY ?? roomMinY + 0.5;
     const rayTop = (ctx.collisionBounds?.max.y ?? ctx.roomBox?.max.y ?? 10) + 2;
     const maxDist = rayTop - roomMinY + 2;
 
@@ -73,5 +92,5 @@ export function findSpawnFloorY(
     ctx.raycaster.set(_origin, _dir);
     ctx.raycaster.far = maxDist;
     const hits = ctx.raycaster.intersectObjects(ctx.collidableMeshes, true);
-    return pickLowestFloorY(hits);
+    return pickClosestWalkableFloorY(hits, ref, roomMinY);
 }
