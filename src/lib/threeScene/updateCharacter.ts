@@ -9,6 +9,9 @@ import {
 
 const MOVE_SPEED = 2.0;
 const RUN_SPEED = 3.6;
+const MOVE_ACCEL = 10;
+const RUN_ACCEL = 14;
+const MOVE_DECEL = 12;
 const ROT_TURN_RATE = 12;
 const ROT_DIAGONAL_TURN_RATE = 24;
 const ROT_IN_PLACE_RATE = 3.6;
@@ -24,6 +27,7 @@ const _up = new THREE.Vector3(0, 1, 0);
 const _camForward = new THREE.Vector3();
 const _camRight = new THREE.Vector3();
 const _moveDir = new THREE.Vector3();
+const _faceDir = new THREE.Vector3();
 const _move = new THREE.Vector3();
 const _charPos = new THREE.Vector3();
 const _portalPos = new THREE.Vector3();
@@ -79,6 +83,20 @@ function followFloor(
   return true;
 }
 
+function moveToward(current: number, target: number, maxDelta: number): number {
+  if (Math.abs(target - current) <= maxDelta) return target;
+  return current + Math.sign(target - current) * maxDelta;
+}
+
+function decelerate(vx: number, vz: number, decel: number, dt: number): [number, number] {
+  const speed = Math.hypot(vx, vz);
+  if (speed < 1e-6) return [0, 0];
+
+  const newSpeed = Math.max(0, speed - decel * dt);
+  const scale = newSpeed / speed;
+  return [vx * scale, vz * scale];
+}
+
 export function updateCharacter(ctx: any, dt: number) {
   if (!ctx.character || !ctx.roomLoaded || !ctx.roomBox) return;
 
@@ -122,19 +140,44 @@ export function updateCharacter(ctx: any, dt: number) {
     _moveDir.set(0, 0, 0).addScaledVector(_camForward, inputForward);
   }
 
+  const hasMoveInput = _moveDir.lengthSq() > 1e-6;
+  let vx = ctx.moveVelocityX ?? 0;
+  let vz = ctx.moveVelocityZ ?? 0;
+
+  if (hasMoveInput) {
+    _moveDir.normalize();
+    const accel = ctx.keys['shift'] ? RUN_ACCEL : MOVE_ACCEL;
+    const targetVx = _moveDir.x * moveSpeed;
+    const targetVz = _moveDir.z * moveSpeed;
+    const maxDelta = accel * moveDt;
+    vx = moveToward(vx, targetVx, maxDelta);
+    vz = moveToward(vz, targetVz, maxDelta);
+  } else {
+    [vx, vz] = decelerate(vx, vz, MOVE_DECEL, moveDt);
+  }
+
+  ctx.moveVelocityX = vx;
+  ctx.moveVelocityZ = vz;
+
+  const currentSpeed = Math.hypot(vx, vz);
   ctx.isBackingUp = false;
 
-  if (_moveDir.lengthSq() > 1e-6) {
-    _moveDir.normalize();
-    _move.copy(_moveDir).multiplyScalar(moveSpeed * moveDt);
+  if (currentSpeed > 1e-4) {
+    _move.set(vx * moveDt, 0, vz * moveDt);
 
     const swept = sweepWithBvh(bvh, pos, footOffset, _move.x, _move.z);
     pos.x += swept.dx;
     pos.z += swept.dz;
 
     // Turn toward movement; on S the camera stays fixed so you see the character face you.
-    ctx.isBackingUp = inputForward < 0 && Math.abs(inputForward) >= Math.abs(inputTurn);
-    const targetYaw = Math.atan2(_moveDir.x, _moveDir.z);
+    if (hasMoveInput) {
+      _faceDir.copy(_moveDir);
+      ctx.isBackingUp = inputForward < 0 && Math.abs(inputForward) >= Math.abs(inputTurn);
+    } else {
+      _faceDir.set(vx, 0, vz).normalize();
+    }
+
+    const targetYaw = Math.atan2(_faceDir.x, _faceDir.z);
     const currentYaw = ctx.character.rotation?.y ?? 0;
     const yawDelta = (targetYaw - currentYaw + Math.PI) % (Math.PI * 2) - Math.PI;
     const turnRate = ctx.isBackingUp
@@ -153,7 +196,7 @@ export function updateCharacter(ctx: any, dt: number) {
   const airborne = (ctx.verticalVelocity ?? 0) > 0.05;
 
   if (!airborne && floorY !== null) {
-    const supported = followFloor(pos, footOffset, floorY, moveSpeed, moveDt);
+    const supported = followFloor(pos, footOffset, floorY, currentSpeed, moveDt);
     ctx.isGrounded = supported;
 
     if (supported) {

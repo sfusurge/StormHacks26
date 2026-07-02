@@ -41,6 +41,8 @@ export class ThreeScene {
   jumpPressed = false;
   isPointerDown = false;
   isBackingUp = false;
+  moveVelocityX = 0;
+  moveVelocityZ = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
