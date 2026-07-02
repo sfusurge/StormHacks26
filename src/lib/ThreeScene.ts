@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader';
-import { alignCharacterToFloor, clampCharacterToRoom, snapCharacterToFloor } from './threeScene/alignCharacterToFloor';
+import { alignCharacterToFloor, clampCharacterToRoom, getFootOffset, snapCharacterToFloor } from './threeScene/alignCharacterToFloor';
 import { updateCharacter as updateCharacterInternal } from './threeScene/updateCharacter';
 import { updateCamera as updateCameraInternal } from './threeScene/updateCamera';
 import { buildCollisionFromRoom } from './threeScene/buildCollisionFromRoom';
@@ -165,8 +165,10 @@ export class ThreeScene {
     const box = this.collisionBounds ?? this.roomBox;
     if (box) {
       this.character.position.x = (box.min.x + box.max.x) / 2;
-      this.character.position.z = (box.min.z + box.max.z) / 2 - 5.5;
+      this.character.position.z = (box.min.z + box.max.z) / 2 - 3.5;
       clampCharacterToRoom(this.character, box, this.characterMargin);
+      const footOffset = getFootOffset(this.character);
+      this.character.position.y = box.min.y + 1.8 + footOffset;
     }
     this._snapToFloor();
     this._frameCameraOnCharacter();

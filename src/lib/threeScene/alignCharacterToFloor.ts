@@ -42,10 +42,12 @@ export function snapCharacterToFloor(
       collisionBounds?: THREE.Box3 | null;
     }
 ): boolean {
-  const floorY = findSpawnFloorY(ctx, x, z);
+  character.updateMatrixWorld(true);
+  const footOffset = getFootOffset(character);
+  const feetY = character.position.y - footOffset;
+  const floorY = findSpawnFloorY(ctx, x, z, feetY);
   if (floorY === null) return false;
 
-  const footOffset = getFootOffset(character);
   character.position.set(x, floorY + footOffset, z);
   return true;
 }
