@@ -72,6 +72,7 @@ export class ThreeScene {
   initPhysics() {
     this.world = new CANNON.World();
     this.world.gravity.set(0, -9.82, 0);
+    //this.world.gravity.set(0, 0 , 0);
     this.world.broadphase = new CANNON.NaiveBroadphase();
   }
 
@@ -88,7 +89,9 @@ export class ThreeScene {
     // try to load a full glTF room model
     const url = new URL('../../assets/models/room_foundation.glb', import.meta.url).href;
     this.loader.load(url, (g) => {
+      
       const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
+
       // normalize scale/position
       const box = new THREE.Box3().setFromObject(obj);
       const size = new THREE.Vector3(); box.getSize(size);
@@ -267,6 +270,49 @@ export class ThreeScene {
     this.lastPointer.set(ev.clientX, ev.clientY);
   }
 
+  // dialogues
+  speechTriggers = [
+    {
+      position: new THREE.Vector3(1, -1, 1),
+      radius: 1,
+      title: 'Name of Location',
+      text: 'This is the short text description...'
+    },
+    {
+      position: new THREE.Vector3(0, 0.75, 3.2),
+      radius: 1,
+      title: 'Taskboard',
+      text: 'This is a small text about the tasks...'
+    },
+  ];
+  activeTrigger: any = null;
+
+  updateSpeechTriggers() {
+    if (!this.character) return;
+
+    const playerPos = this.character.position;
+    let nearTrigger = null;
+
+    // find if player is near any trigger
+    for (const trigger of this.speechTriggers) {
+      const distance = playerPos.distanceTo(trigger.position);
+      if (distance < trigger.radius) {
+        nearTrigger = trigger;
+        break;
+      }
+    }
+
+    // only emit events if the active trigger changed
+    if (nearTrigger !== this.activeTrigger) {
+      this.activeTrigger = nearTrigger;
+      if (nearTrigger) {
+        window.dispatchEvent(new CustomEvent('show-speech', { detail: nearTrigger }));
+      } else {
+        window.dispatchEvent(new CustomEvent('hide-speech'));
+      }
+    }
+  }
+
   updateCharacter(dt: number) {
     updateCharacterInternal(this, dt);
   }
@@ -286,6 +332,8 @@ export class ThreeScene {
         // world may be undefined briefly
       }
       this.updateCharacter(dt);
+      //test
+      this.updateSpeechTriggers();
       this.updateCamera(dt);
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(tick);
