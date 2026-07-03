@@ -72,7 +72,6 @@ export class ThreeScene {
   initPhysics() {
     this.world = new CANNON.World();
     this.world.gravity.set(0, -9.82, 0);
-    //this.world.gravity.set(0, 0 , 0);
     this.world.broadphase = new CANNON.NaiveBroadphase();
   }
 
@@ -89,9 +88,7 @@ export class ThreeScene {
     // try to load a full glTF room model
     const url = new URL('../../assets/models/room_foundation.glb', import.meta.url).href;
     this.loader.load(url, (g) => {
-      
       const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
-
       // normalize scale/position
       const box = new THREE.Box3().setFromObject(obj);
       const size = new THREE.Vector3(); box.getSize(size);
@@ -332,7 +329,6 @@ export class ThreeScene {
         // world may be undefined briefly
       }
       this.updateCharacter(dt);
-      //test
       this.updateSpeechTriggers();
       this.updateCamera(dt);
       this.renderer.render(this.scene, this.camera);
