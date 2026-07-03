@@ -2,14 +2,51 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
+ * Bakes animated mesh transforms into geometry the same way mergeRoomMeshesByMaterial
+ * does for static meshes, so flipbook frames line up with the merged room.
+ */
+export function bakeAnimatedMeshesForMergedSpace(
+    root: THREE.Object3D,
+    animatedNodeNames: Set<string>,
+): void {
+    root.traverse((node) => {
+        if (!(node as THREE.Mesh).isMesh || !animatedNodeNames.has(node.name)) return;
+
+        const mesh = node as THREE.Mesh;
+        if (!mesh.geometry?.attributes?.position) return;
+
+        // Hidden flipbook frames load with scale 0; bake at scale 1 so geometry isn't collapsed.
+        mesh.scale.set(1, 1, 1);
+        mesh.updateMatrix();
+        mesh.updateWorldMatrix(true, false);
+
+        const geom = mesh.geometry.clone();
+        geom.applyMatrix4(mesh.matrixWorld);
+        geom.computeBoundingSphere();
+        mesh.geometry.dispose();
+        mesh.geometry = geom;
+
+        mesh.position.set(0, 0, 0);
+        mesh.rotation.set(0, 0, 0);
+        mesh.scale.set(1, 1, 1);
+        mesh.frustumCulled = false;
+        mesh.updateMatrix();
+    });
+}
+
+/**
  * Merges static room meshes by material to cut draw calls (714 → ~material count).
  */
-export function mergeRoomMeshesByMaterial(root: THREE.Object3D): number {
+export function mergeRoomMeshesByMaterial(
+    root: THREE.Object3D,
+    shouldExclude: (node: THREE.Object3D) => boolean = () => false,
+): number {
     const groups = new Map<string, { material: THREE.Material; geoms: THREE.BufferGeometry[] }>();
     const meshesToRemove: THREE.Mesh[] = [];
 
     root.traverse((node) => {
         if (!(node as THREE.Mesh).isMesh) return;
+        if (shouldExclude(node)) return;
         const mesh = node as THREE.Mesh;
         if (!mesh.geometry?.attributes?.position) return;
 

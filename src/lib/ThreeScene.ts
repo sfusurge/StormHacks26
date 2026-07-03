@@ -6,8 +6,10 @@ import { updateCharacter as updateCharacterInternal } from './threeScene/updateC
 import { updateCamera as updateCameraInternal } from './threeScene/updateCamera';
 import { buildCollisionFromRoom } from './threeScene/buildCollisionFromRoom';
 import { createCameraCollisionMesh, normalizeRoomObject } from './threeScene/collisionMap';
-import { mergeRoomMeshesByMaterial } from './threeScene/mergeRoomMeshes';
+import { mergeRoomMeshesByMaterial, bakeAnimatedMeshesForMergedSpace } from './threeScene/mergeRoomMeshes';
+import { initPortalFlipbookVisibility, resetPortalFlipbookCache, syncPortalFlipbookFromTime } from './threeScene/portalFlipbook';
 import { findSpawnFloorY } from './threeScene/floorQuery';
+import { PlayerPhysics } from './threeScene/playerPhysics';
 import { writable } from 'svelte/store';
 
 export class ThreeScene {
@@ -41,8 +43,10 @@ export class ThreeScene {
   jumpPressed = false;
   isPointerDown = false;
   isBackingUp = false;
-  moveVelocityX = 0;
-  moveVelocityZ = 0;
+  isGrounded = true;
+  playerPhysics: PlayerPhysics | null = null;
+  room: THREE.Object3D | null = null;
+  portalFlipbookTime = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -92,6 +96,7 @@ export class ThreeScene {
           window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 70, stage: 'Processing geometry...' } }));
 
           const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
+          this.room = obj;
           this.roomBox = normalizeRoomObject(obj);
           this.scene.add(obj);
           this._alignCharacterToFloor();
@@ -99,19 +104,33 @@ export class ThreeScene {
 
           window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 80, stage: 'Optimizing meshes...' } }));
 
+          const animatedNodeNames = new Set<string>();
+          if (g.animations?.length) {
+            for (const clip of g.animations) {
+              for (const track of clip.tracks) {
+                animatedNodeNames.add(track.name.split('.')[0]);
+              }
+            }
+          }
+
+          bakeAnimatedMeshesForMergedSpace(obj, animatedNodeNames);
+          initPortalFlipbookVisibility(obj);
+
           obj.traverse((node) => {
             if (!(node as THREE.Mesh).isMesh) return;
             const m = node as THREE.Mesh;
             m.castShadow = false;
             m.receiveShadow = false;
-            m.frustumCulled = true;
-            m.matrixAutoUpdate = false;
+            m.frustumCulled = !animatedNodeNames.has(node.name);
+            if (!animatedNodeNames.has(node.name)) {
+              m.matrixAutoUpdate = false;
+            }
             if (m.geometry?.attributes.normal === undefined) {
               m.geometry.computeVertexNormals();
             }
           });
 
-          mergeRoomMeshesByMaterial(obj);
+          mergeRoomMeshesByMaterial(obj, (node) => animatedNodeNames.has(node.name));
 
           this._syncPlayerToFloor();
           void this._initCollision(obj);
@@ -157,7 +176,13 @@ export class ThreeScene {
       this.character = obj;
       this.scene.add(obj);
       this._snapToFloor();
+      this._syncPlayerPhysics();
     });
+  }
+
+  _syncPlayerPhysics() {
+    if (!this.character || !this.playerPhysics) return;
+    this.playerPhysics.resetFromCharacter(this.character.position, getFootOffset(this.character));
   }
 
   _syncPlayerToFloor() {
@@ -171,6 +196,7 @@ export class ThreeScene {
       this.character.position.y = box.min.y + 1.8 + footOffset;
     }
     this._snapToFloor();
+    this._syncPlayerPhysics();
     this._frameCameraOnCharacter();
   }
 
@@ -213,6 +239,8 @@ export class ThreeScene {
       this.scene.add(this.cameraCollisionMesh);
       this.collidableMeshes = [this.cameraCollisionMesh];
 
+      this.playerPhysics = new PlayerPhysics();
+
       this._syncPlayerToFloor();
       this._positionInteractable();
 
@@ -227,7 +255,11 @@ export class ThreeScene {
 
   makeInteractable() {
     const geom = new THREE.BoxGeometry(0.8, 0.8, 0.2);
-    const mat = new THREE.MeshStandardMaterial({ color: 0xffaa00 });
+    const mat = new THREE.MeshStandardMaterial({
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
     const obj = new THREE.Mesh(geom, mat);
     (obj as any).userData = { url: 'https://portal.sfusurge.com' };
     this.scene.add(obj);
@@ -335,6 +367,8 @@ export class ThreeScene {
     const tick = () => {
       if (this.disposed) return;
       const dt = clock.getDelta();
+      this.portalFlipbookTime += dt;
+      syncPortalFlipbookFromTime(this.room, this.portalFlipbookTime);
       this.updateCharacter(dt);
       this.updateCamera();
       this.renderer.render(this.scene, this.camera);
@@ -345,6 +379,9 @@ export class ThreeScene {
 
   dispose() {
     this.disposed = true;
+    resetPortalFlipbookCache();
+    this.playerPhysics?.dispose();
+    this.playerPhysics = null;
     this.renderer.dispose();
     (this.canvas as any).remove();
   }
