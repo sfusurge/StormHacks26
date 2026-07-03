@@ -3,11 +3,13 @@
   import Overlay from './components/Overlay.svelte';
   import InfoPanel from './components/InfoPanel.svelte';
   import SpeechBox from './components/speechBox.svelte';
+  import Loading from './components/Loading.svelte';
   import { ThreeScene } from './lib/ThreeScene';
 
   let show = false;
   let currentComponent: any = null;
   let scene: ThreeScene | null = null;
+  let isLoading = true;
 
   let showSpeech = false;
   let speechData = { title: '', text: '' };
@@ -42,6 +44,11 @@
     window.addEventListener('hide-speech', hideSpeechHandler as EventListener);
     const canvas = document.getElementById('three-canvas') as HTMLCanvasElement;
     scene = new ThreeScene(canvas);
+
+    scene.isLoading.subscribe(value => {
+      isLoading = value;
+    });
+
     return () => { scene?.dispose(); };
   });
   
@@ -61,25 +68,35 @@
 
 <style>
   .fullscreen-canvas { position: fixed; inset: 0; width: 100%; height: 100%; }
+
+  .speech-layer {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    z-index: 50;
+  }
 </style>
 
 <div class="fullscreen-canvas">
   <canvas id="three-canvas" />
 </div>
 
-<div class="speech-box-container" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);">
-  {#if showSpeech}
-    <SpeechBox
-      title={speechData.title}
-      text={speechData.text}
-    />
-  {/if}
-</div>
+{#if isLoading}
+  <Loading />
+{/if}
 
-{#if show}
+{#if show && !isLoading}
   <Overlay title="In-Scene Component" on:close={close}>
     {#if currentComponent}
       <svelte:component this={currentComponent} on:close={close} />
     {/if}
   </Overlay>
 {/if}
+
+{#if showSpeech && !isLoading}
+  <div class="speech-layer">
+    <SpeechBox title={speechData.title} text={speechData.text} />
+  </div>
+{/if}
+

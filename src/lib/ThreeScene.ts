@@ -1,10 +1,14 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
-import * as CANNON from 'cannon-es';
-import { addStaticColliderFromMesh, addStaticTrimeshFromMesh } from './threeScene/physicsHelpers';
-import { alignCharacterToFloor } from './threeScene/alignCharacterToFloor';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader';
+import { alignCharacterToFloor, clampCharacterToRoom, getFootOffset, snapCharacterToFloor } from './threeScene/alignCharacterToFloor';
 import { updateCharacter as updateCharacterInternal } from './threeScene/updateCharacter';
 import { updateCamera as updateCameraInternal } from './threeScene/updateCamera';
+import { buildCollisionFromRoom } from './threeScene/buildCollisionFromRoom';
+import { createCameraCollisionMesh, normalizeRoomObject } from './threeScene/collisionMap';
+import { mergeRoomMeshesByMaterial } from './threeScene/mergeRoomMeshes';
+import { findSpawnFloorY } from './threeScene/floorQuery';
+import { writable } from 'svelte/store';
 
 export class ThreeScene {
   renderer: THREE.WebGLRenderer;
@@ -19,45 +23,45 @@ export class ThreeScene {
   disposed = false;
   loader: GLTFLoader;
   roomBox: THREE.Box3 | null = null;
+  collisionBounds: THREE.Box3 | null = null;
+  roomLoaded = false;
+  isLoading = writable(true);
 
-  // list of meshes used for camera collision checks
   collidableMeshes: THREE.Mesh[] = [];
+  cameraCollisionMesh: THREE.Mesh | null = null;
 
-  // physics
-  world: CANNON.World;
-  playerBody: CANNON.Body | null = null;
-
-  // camera orbit controls state
-  cameraYaw = 0; // radians around Y
-  cameraPitch = 0; // radians up/down
-  cameraDistance = 1.4; // even closer behind the character's head
-  minCameraDistance = 1.3;
-  maxCameraDistance = 2.5;
-  // tighter bounds settings
-  characterMargin = 1.5; // meters from walls for character
-  cameraMargin = 0.5; // horizontal margin for camera inside room
-  cameraVerticalMargin = 0.1; // vertical margin from floor/ceiling for camera (keep small so camera can be low)
+  cameraYaw = 0;
+  cameraPitch = 0;
+  cameraDistance = 1.0;
+  minCameraDistance = 0.9;
+  maxCameraDistance = 1.8;
+  characterMargin = 0.35;
+  cameraMargin = 0.5;
+  cameraVerticalMargin = 0.1;
+  jumpPressed = false;
   isPointerDown = false;
-  lastPointer = new THREE.Vector2();
-  pointerId: number | null = null;
+  isBackingUp = false;
+  moveVelocityX = 0;
+  moveVelocityZ = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.shadowMap.enabled = false;
 
-    // loader must be available before makeRoom/makeCharacter
     this.loader = new GLTFLoader();
+
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+    this.loader.setDRACOLoader(dracoLoader);
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x20232a);
 
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    // start camera lower so view is closer to the character
     this.camera.position.set(0, 4, 1.1);
-
-    this.initPhysics();
 
     this.setupLights();
     this.makeRoom();
@@ -69,170 +73,230 @@ export class ThreeScene {
     this.animate();
   }
 
-  initPhysics() {
-    this.world = new CANNON.World();
-    this.world.gravity.set(0, -9.82, 0);
-    this.world.broadphase = new CANNON.NaiveBroadphase();
-  }
-
   setupLights() {
     const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
     hemi.position.set(0, 20, 0);
     this.scene.add(hemi);
     const dir = new THREE.DirectionalLight(0xffffff, 0.6);
     dir.position.set(3, 10, 10);
+    dir.castShadow = false;
     this.scene.add(dir);
   }
 
   makeRoom() {
-    // try to load a full glTF room model
-    const url = new URL('../../assets/models/room_foundation.glb', import.meta.url).href;
-    this.loader.load(url, (g) => {
-      const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
-      // normalize scale/position
-      const box = new THREE.Box3().setFromObject(obj);
-      const size = new THREE.Vector3(); box.getSize(size);
-      const maxDim = Math.max(size.x, size.y, size.z);
-      if (maxDim > 0) {
-        const s = 8.0 / maxDim;
-        obj.scale.setScalar(s);
-      }
-      box.setFromObject(obj);
-      const center = new THREE.Vector3(); box.getCenter(center);
-      obj.position.sub(center);
-      // ensure room sits on floor roughly
-      obj.position.y += Math.abs(box.min.y);
-      this.scene.add(obj);
+    const glbUrl = new URL('../../assets/models/room_foundation.glb', import.meta.url).href;
 
-      // compute world-space bounds for the room and align character if present
-      const worldBox = new THREE.Box3().setFromObject(obj);
-      this.roomBox = worldBox;
-      this._alignCharacterToFloor();
+    this.loader.load(
+        glbUrl,
+        (g) => {
+          window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 70, stage: 'Processing geometry...' } }));
 
-      // Setup physics bodies for the room: look for COLLIDER_ prefixed meshes; if none, build trimeshes from geometry
-      const collidersFound = [] as THREE.Mesh[];
-      obj.traverse((node) => {
-        if ((node as THREE.Mesh).isMesh) {
-          const m = node as THREE.Mesh;
-          // collect meshes for camera collision checks
-          this.collidableMeshes.push(m);
-          if (m.name && m.name.startsWith('COLLIDER_')) collidersFound.push(m);
+          const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
+          this.roomBox = normalizeRoomObject(obj);
+          this.scene.add(obj);
+          this._alignCharacterToFloor();
+          this._positionInteractable();
+
+          window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 80, stage: 'Optimizing meshes...' } }));
+
+          obj.traverse((node) => {
+            if (!(node as THREE.Mesh).isMesh) return;
+            const m = node as THREE.Mesh;
+            m.castShadow = false;
+            m.receiveShadow = false;
+            m.frustumCulled = true;
+            m.matrixAutoUpdate = false;
+            if (m.geometry?.attributes.normal === undefined) {
+              m.geometry.computeVertexNormals();
+            }
+          });
+
+          mergeRoomMeshesByMaterial(obj);
+
+          this._syncPlayerToFloor();
+          void this._initCollision(obj);
+        },
+        (progress) => {
+          const percent = (progress.loaded / progress.total) * 70;
+          window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: percent, stage: 'Downloading model...' } }));
+        },
+        () => {
+          this.isLoading.set(false);
         }
-      });
-
-      if (collidersFound.length > 0) {
-        collidersFound.forEach((m) => this._addStaticColliderFromMesh(m));
-      } else {
-        // fallback: make static trimesh bodies for all meshes under the room
-        obj.traverse((node) => {
-          if ((node as THREE.Mesh).isMesh) {
-            this._addStaticTrimeshFromMesh(node as THREE.Mesh);
-          }
-        });
-      }
-
-    });
+    );
   }
 
   makeCharacter() {
-    // create a placeholder character so update loop can run immediately
-    // scale up the placeholder to better match a larger character
     const placeholderGeom = new THREE.BoxGeometry(0.3, 0.64, 0.3);
     const placeholderMat = new THREE.MeshStandardMaterial({ color: 0x3377ff });
     const placeholder = new THREE.Mesh(placeholderGeom, placeholderMat);
-    // place placeholder slightly above floor (half height)
     placeholder.position.set(0, 0.32, 0);
     this.character = placeholder;
     this.scene.add(placeholder);
     this._alignCharacterToFloor();
 
-    // nudge the character slightly backward so it doesn't start too far forward
-    try { this.character.position.z += 1.0; } catch(e) {}
-
-    // create physics body for the player (simple capsule approximation using a sphere for now)
-    const pos = this.character.position;
-    const radius = 0.16; // larger radius to match scaled character
-    const mass = 1;
-    const sphereShape = new CANNON.Sphere(radius);
-    const body = new CANNON.Body({ mass });
-    body.addShape(sphereShape);
-    // position the physics body so its bottom rests on the floor
-    body.position.set(pos.x, pos.y + radius, pos.z);
-    body.linearDamping = 0.9;
-    this.world.addBody(body);
-    this.playerBody = body;
-
-    // try loading the CesiumMan glb and replace the placeholder when ready
     const url = new URL('../../assets/models/CesiumMan.glb', import.meta.url).href;
     this.loader.load(url, (g) => {
       const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
-      // normalize scale
       const box = new THREE.Box3().setFromObject(obj);
-      const size = new THREE.Vector3(); box.getSize(size);
+      const size = new THREE.Vector3();
+      box.getSize(size);
       const maxDim = Math.max(size.x, size.y, size.z);
       if (maxDim > 0) {
         const s = (1.4 / maxDim) * 0.5;
         obj.scale.setScalar(s);
       }
       box.setFromObject(obj);
-      const center = new THREE.Vector3(); box.getCenter(center);
+      const center = new THREE.Vector3();
+      box.getCenter(center);
       obj.position.sub(center);
-      // lift so feet are at y=0 relative to its bounds
       box.setFromObject(obj);
       obj.position.y += Math.abs(box.min.y);
 
-      // replace placeholder
       this.scene.remove(placeholder);
       this.character = obj;
       this.scene.add(obj);
-      this._alignCharacterToFloor();
-
-      // nudge loaded character slightly backward instead
-      try { this.character.position.z += 1.0; } catch(e) {}
-
-      // reposition physics body to match new character bounds
-      if (this.playerBody) {
-      const p = new THREE.Vector3();
-      p.copy((this.character as any).position || new THREE.Vector3());
-      // keep physics body sitting on top of feet using same radius
-      const bodyRadius = (this.playerBody.shapes && (this.playerBody.shapes[0] as any).radius) || 0.16;
-      this.playerBody.position.set(p.x, p.y + bodyRadius, p.z);
-      }
-    }, undefined, (err) => {
-      // keep placeholder on error
-      console.warn('Failed to load character glb, using placeholder', err);
+      this._snapToFloor();
     });
   }
 
-  _addStaticColliderFromMesh(mesh: THREE.Mesh) {
-    addStaticColliderFromMesh(this.world, mesh);
+  _syncPlayerToFloor() {
+    if (!this.character) return;
+    const box = this.collisionBounds ?? this.roomBox;
+    if (box) {
+      this.character.position.x = (box.min.x + box.max.x) / 2;
+      this.character.position.z = (box.min.z + box.max.z) / 2 - 3.5;
+      clampCharacterToRoom(this.character, box, this.characterMargin);
+      const footOffset = getFootOffset(this.character);
+      this.character.position.y = box.min.y + 1.8 + footOffset;
+    }
+    this._snapToFloor();
+    this._frameCameraOnCharacter();
   }
 
-  _addStaticTrimeshFromMesh(mesh: THREE.Mesh) {
-    addStaticTrimeshFromMesh(this.world, mesh);
+  _frameCameraOnCharacter() {
+    if (!this.character) return;
+    const lookAt = this.character.position.clone().add(new THREE.Vector3(0, 0.6, 0));
+    this.camera.lookAt(lookAt);
+  }
+
+  _snapToFloor() {
+    if (!this.character) return;
+
+    const x = this.character.position.x;
+    const z = this.character.position.z;
+
+    if (
+        this.collidableMeshes.length > 0 &&
+        snapCharacterToFloor(this.character, x, z, this)
+    ) {
+      return;
+    }
+
+    this._alignCharacterToFloor();
   }
 
   _alignCharacterToFloor() {
-    alignCharacterToFloor(this.character, this.roomBox, this.characterMargin);
+    alignCharacterToFloor(this.character, this.roomBox);
+  }
+
+  async _initCollision(room: THREE.Object3D) {
+    try {
+      window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 90, stage: 'Building collision mesh...' } }));
+      const collisionData = buildCollisionFromRoom(room);
+      this.collisionBounds = collisionData.bounds;
+
+      this.cameraCollisionMesh = await createCameraCollisionMesh(collisionData, (p) => {
+        const progress = 90 + Math.round(p * 8);
+        window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress, stage: 'Building collision tree...' } }));
+      });
+      this.scene.add(this.cameraCollisionMesh);
+      this.collidableMeshes = [this.cameraCollisionMesh];
+
+      this._syncPlayerToFloor();
+      this._positionInteractable();
+
+      this.roomLoaded = true;
+      window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 100, stage: 'Complete!' } }));
+      this.isLoading.set(false);
+    } catch {
+      this.roomLoaded = true;
+      this.isLoading.set(false);
+    }
   }
 
   makeInteractable() {
     const geom = new THREE.BoxGeometry(0.8, 0.8, 0.2);
     const mat = new THREE.MeshStandardMaterial({ color: 0xffaa00 });
     const obj = new THREE.Mesh(geom, mat);
-    // move the box lower so it's near the room floor (was y=1)
-    obj.position.set(1, -1, 1);
-    // attach a component name to render from the app when clicked
-    (obj as any).userData = { component: 'InfoPanel' };
+    (obj as any).userData = { url: 'https://portal.sfusurge.com' };
     this.scene.add(obj);
     this.interactables.push(obj);
   }
 
+  _positionInteractable() {
+    const mesh = this.interactables[0] as THREE.Mesh | undefined;
+    if (!mesh) return;
+
+    const box = this.collisionBounds ?? this.roomBox;
+    if (!box) return;
+
+    const x = (box.min.x + box.max.x) / 2;
+    const z = (box.min.z + box.max.z) / 2 - 1.25;
+    const floorY = findSpawnFloorY(this, x, z) ?? box.min.y;
+    const halfHeight = (mesh.geometry as THREE.BoxGeometry).parameters.height / 2;
+    mesh.position.set(x, floorY + halfHeight + 0.25, z);
+  }
+
   bind() {
+    this.canvas.tabIndex = 0;
+    this.canvas.style.outline = 'none';
+
     window.addEventListener('resize', this.onResize.bind(this));
-    window.addEventListener('keydown', (e) => (this.keys[e.key.toLowerCase()] = true));
-    window.addEventListener('keyup', (e) => (this.keys[e.key.toLowerCase()] = false));
-    this.canvas.addEventListener('click', this.onClick.bind(this));
+
+    const setKey = (key: string, down: boolean) => {
+      this.keys[key] = down;
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      setKey('shift', e.shiftKey);
+      const key = e.key.toLowerCase();
+      if (['w', 'a', 's', 'd', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+        e.preventDefault();
+      }
+      setKey(key, true);
+      if (key === ' ' && !e.repeat) {
+        this.jumpPressed = true;
+      }
+      // e.code fallback (more reliable when layout / focus is odd)
+      const codeMap: Record<string, string> = {
+        KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd',
+        ArrowUp: 'arrowup', ArrowDown: 'arrowdown',
+        ArrowLeft: 'arrowleft', ArrowRight: 'arrowright',
+      };
+      const mapped = codeMap[e.code];
+      if (mapped) setKey(mapped, true);
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      setKey('shift', e.shiftKey);
+      const key = e.key.toLowerCase();
+      setKey(key, false);
+      const codeMap: Record<string, string> = {
+        KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd',
+        ArrowUp: 'arrowup', ArrowDown: 'arrowdown',
+        ArrowLeft: 'arrowleft', ArrowRight: 'arrowright',
+      };
+      const mapped = codeMap[e.code];
+      if (mapped) setKey(mapped, false);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    this.canvas.addEventListener('click', (ev) => {
+      this.canvas.focus();
+      this.onClick(ev);
+    });
   }
 
   onResize() {
@@ -258,25 +322,16 @@ export class ThreeScene {
     }
   }
 
-  // pointer handlers for camera orbit
-  _onPointerDown(ev: PointerEvent) {
-    if (this.pointerId !== null) return; // already tracking
-    this.pointerId = ev.pointerId;
-    (ev.target as Element).setPointerCapture && (ev.target as Element).setPointerCapture(ev.pointerId);
-    this.isPointerDown = true;
-    this.lastPointer.set(ev.clientX, ev.clientY);
-  }
-
   // dialogues
   speechTriggers = [
     {
-      position: new THREE.Vector3(1, -1, 1),
+      position: new THREE.Vector3(1, 0, -5.85),
       radius: 1,
       title: 'Name of Location',
       text: 'This is the short text description...'
     },
     {
-      position: new THREE.Vector3(0, 0.75, 3.2),
+      position: new THREE.Vector3(1.12, 2.76, 0.11),
       radius: 1,
       title: 'Taskboard',
       text: 'This is a small text about the tasks...'
@@ -314,8 +369,8 @@ export class ThreeScene {
     updateCharacterInternal(this, dt);
   }
 
-  updateCamera(dt: number) {
-    updateCameraInternal(this, dt);
+  updateCamera() {
+    updateCameraInternal(this);
   }
 
   animate() {
@@ -323,14 +378,9 @@ export class ThreeScene {
     const tick = () => {
       if (this.disposed) return;
       const dt = clock.getDelta();
-      try {
-        this.world.step(1 / 60, dt, 3);
-      } catch (e) {
-        // world may be undefined briefly
-      }
       this.updateCharacter(dt);
       this.updateSpeechTriggers();
-      this.updateCamera(dt);
+      this.updateCamera();
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(tick);
     };
@@ -339,7 +389,6 @@ export class ThreeScene {
 
   dispose() {
     this.disposed = true;
-    // basic cleanup
     this.renderer.dispose();
     (this.canvas as any).remove();
   }

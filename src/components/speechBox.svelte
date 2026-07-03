@@ -46,7 +46,7 @@
   </div>
 
   <button class="next">
-    →
+    ->
   </button>
 </div>
 
@@ -54,9 +54,10 @@
   .speech-box {
     position: relative;
     width: 880px;
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
+    /*background: white;
+    border: 2px solid black;
+    border-radius: 12px;
+    padding: 40px;*/
   }
 
   .header {
@@ -77,9 +78,13 @@
     position: absolute;
     top: -20px;
     right: -20px;
+    z-index: 1;
 
     width: 50px;
     height: 50px;
+
+    background: orange;
+    border: 2px solid black;
     border-radius: 50%;
   }
 
