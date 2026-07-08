@@ -376,6 +376,49 @@ export class ThreeScene {
     }
   }
 
+  // dialogues
+  speechTriggers = [
+    {
+      position: new THREE.Vector3(1, 0, -5.85),
+      radius: 1,
+      title: 'Name of Location',
+      text: 'This is the short text description...'
+    },
+    {
+      position: new THREE.Vector3(1.12, 2.76, 0.11),
+      radius: 1,
+      title: 'Taskboard',
+      text: 'This is a small text about the tasks...'
+    },
+  ];
+  activeTrigger: any = null;
+
+  updateSpeechTriggers() {
+    if (!this.character) return;
+
+    const playerPos = this.character.position;
+    let nearTrigger = null;
+
+    // find if player is near any trigger
+    for (const trigger of this.speechTriggers) {
+      const distance = playerPos.distanceTo(trigger.position);
+      if (distance < trigger.radius) {
+        nearTrigger = trigger;
+        break;
+      }
+    }
+
+    // only emit events if the active trigger changed
+    if (nearTrigger !== this.activeTrigger) {
+      this.activeTrigger = nearTrigger;
+      if (nearTrigger) {
+        window.dispatchEvent(new CustomEvent('show-speech', { detail: nearTrigger }));
+      } else {
+        window.dispatchEvent(new CustomEvent('hide-speech'));
+      }
+    }
+  }
+
   updateCharacter(dt: number) {
     updateCharacterInternal(this, dt);
   }
@@ -392,6 +435,7 @@ export class ThreeScene {
       this.portalFlipbookTime += dt;
       syncPortalFlipbookFromTime(this.room, this.portalFlipbookTime);
       this.updateCharacter(dt);
+      this.updateSpeechTriggers();
       this.updateCamera();
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(tick);
