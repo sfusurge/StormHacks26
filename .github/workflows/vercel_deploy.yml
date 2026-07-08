@@ -16,12 +16,14 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
 
-      - name: Trigger Vercel deploy
+      - name: Deploy to Vercel
         env:
-          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
-          echo "Triggering Vercel deployment via Deploy Hook..."
-          curl -X POST "$VERCEL_DEPLOY_HOOK"
+          echo "Deploying to Vercel..."
+          vercel deploy --prod --token=$VERCEL_TOKEN
 
-      - name: Log successful trigger
-        run: echo "✅ Vercel deploy hook triggered successfully!"
+      - name: Log successful deployment
+        run: echo "✅ Vercel deployment triggered successfully!"
