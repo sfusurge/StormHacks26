@@ -27,15 +27,19 @@ const _portalPos = new THREE.Vector3();
 function checkInteractableContact(ctx: {
   character?: THREE.Object3D;
   interactables?: THREE.Object3D[];
-  portalRedirectTriggered?: boolean;
+  portalInRange?: boolean;
 }) {
-  if (!ctx.character || !ctx.interactables?.length || ctx.portalRedirectTriggered) return;
+  if (!ctx.character || !ctx.interactables?.length) return;
 
   ctx.character.updateMatrixWorld(true);
   ctx.character.getWorldPosition(_charPos);
 
+  let nearestDistance = Infinity;
+  let nearestPortal: { object: THREE.Object3D; url: string; name: string } | null = null;
+
   for (const obj of ctx.interactables) {
-    const url = (obj as THREE.Object3D & { userData: { url?: string } }).userData?.url;
+    const url = (obj as THREE.Object3D & { userData: { url?: string; name?: string } }).userData?.url;
+    const name = (obj as THREE.Object3D & { userData: { name?: string } }).userData?.name || 'Portal';
     if (!url) continue;
 
     obj.updateMatrixWorld(true);
@@ -44,12 +48,32 @@ function checkInteractableContact(ctx: {
     const dx = _charPos.x - _portalPos.x;
     const dz = _charPos.z - _portalPos.z;
     const dy = Math.abs(_charPos.y - _portalPos.y);
+    const distanceSq = dx * dx + dz * dz;
 
-    if (dx * dx + dz * dz <= 0.64 && dy <= 1.2) {
-      ctx.portalRedirectTriggered = true;
-      window.location.replace(url);
-      return;
+    // In range if within 0.8 units horizontally and 1.2 units vertically
+    const inRange = distanceSq <= 0.64 && dy <= 1.2;
+
+    if (distanceSq < nearestDistance) {
+      nearestDistance = distanceSq;
+      if (inRange) {
+        nearestPortal = { object: obj, url, name };
+      }
     }
+  }
+
+  // Check if we've just entered portal range
+  if (nearestPortal && !ctx.portalInRange) {
+    ctx.portalInRange = true;
+    window.dispatchEvent(new CustomEvent('show-speech', {
+      detail: {
+        title: nearestPortal.name,
+        text: 'Click the arrow to enter this location.',
+        portalUrl: nearestPortal.url
+      }
+    }));
+  } else if (!nearestPortal && ctx.portalInRange) {
+    ctx.portalInRange = false;
+    window.dispatchEvent(new CustomEvent('hide-speech'));
   }
 }
 

@@ -381,8 +381,8 @@ export class ThreeScene {
     {
       position: new THREE.Vector3(1, 0, -5.85),
       radius: 1,
-      title: 'Name of Location',
-      text: 'This is the short text description...'
+      title: 'Surge World',
+      text: 'Welcome player!'
     },
     {
       position: new THREE.Vector3(1.12, 2.76, 0.11),

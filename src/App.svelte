@@ -3,6 +3,7 @@
   import Overlay from './components/Overlay.svelte';
   import InfoPanel from './components/InfoPanel.svelte';
   import SpeechBox from './components/speechBox.svelte';
+  import PortalDialogue from './components/PortalDialogue.svelte';
   import Loading from './components/Loading.svelte';
   import MobileJoystick from './components/MobileJoystick.svelte';
   import { ThreeScene } from './lib/ThreeScene';
@@ -14,7 +15,10 @@
   let isMobile = false;
 
   let showSpeech = false;
-  let speechData = { title: '', text: '' };
+  let speechData = { title: '', text: '', portalUrl: '' };
+
+  let showPortalDialogue = false;
+  let portalData = { name: '', url: '' };
 
   const components: Record<string, any> = {
     InfoPanel
@@ -38,6 +42,10 @@
 
   function hideSpeechHandler() {
     showSpeech = false;
+  }
+
+  function closePortalDialogueHandler() {
+    showPortalDialogue = false;
   }
 
   onMount(() => {
@@ -105,7 +113,7 @@
 
 {#if showSpeech && !isLoading}
   <div class="speech-layer">
-    <SpeechBox title={speechData.title} text={speechData.text} />
+    <SpeechBox title={speechData.title} text={speechData.text} portalUrl={speechData.portalUrl} />
   </div>
 {/if}
 

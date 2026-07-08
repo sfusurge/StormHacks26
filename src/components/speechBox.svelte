@@ -4,6 +4,7 @@
   const boxImage = new URL('../../assets/ui/speechBoxContainer.png', import.meta.url).href;
   export let title = "";
   export let text = "";
+  export let portalUrl = "";
 
   let displayedText = "";
   let typing = false;
@@ -29,6 +30,16 @@
     displayedText = text;
     typing = false;
   }
+
+  function handleNext() {
+    if (portalUrl) {
+      window.location.href = portalUrl;
+    }
+  }
+
+  function handleClose() {
+    window.dispatchEvent(new CustomEvent('hide-speech'));
+  }
 </script>
 
 <div class="speech-box" style={`background-image: url(${boxImage});`}>
@@ -36,7 +47,7 @@
     {title}
   </div>
 
-  <button class="close">X</button>
+  <button class="close" on:click={handleClose}>X</button>
 
   <div
     class="content"
@@ -45,9 +56,11 @@
     {displayedText}
   </div>
 
-  <button class="next">
-    ->
-  </button>
+  {#if portalUrl}
+    <button class="next" on:click={handleNext}>
+      ->
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -104,7 +117,7 @@
   .next {
     position: absolute;
     right: 20px;
-    bottom: -25px;
+    bottom: 20px;
 
     width: 60px;
     height: 60px;
