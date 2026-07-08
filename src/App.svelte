@@ -3,7 +3,6 @@
   import Overlay from './components/Overlay.svelte';
   import InfoPanel from './components/InfoPanel.svelte';
   import SpeechBox from './components/speechBox.svelte';
-  import PortalDialogue from './components/PortalDialogue.svelte';
   import Loading from './components/Loading.svelte';
   import MobileJoystick from './components/MobileJoystick.svelte';
   import { ThreeScene } from './lib/ThreeScene';

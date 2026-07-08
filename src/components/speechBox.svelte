@@ -1,10 +1,9 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  
   const boxImage = new URL('../../assets/ui/speechBoxContainer.png', import.meta.url).href;
   export let title = "";
   export let text = "";
   export let portalUrl = "";
+  export let mode: 'speech' | 'dialogue' = 'speech';
 
   let displayedText = "";
   let typing = false;
@@ -40,28 +39,52 @@
   function handleClose() {
     window.dispatchEvent(new CustomEvent('hide-speech'));
   }
+
+  function handleYes() {
+    if (portalUrl) {
+      window.location.replace(portalUrl);
+    }
+  }
+
+  function handleNo() {
+    window.dispatchEvent(new CustomEvent('close-portal-dialogue'));
+  }
 </script>
 
-<div class="speech-box" style={`background-image: url(${boxImage});`}>
-  <div class="header">
-    {title}
+{#if mode === 'dialogue'}
+  <div class="dialogue-overlay">
+    <div class="dialogue">
+      <h2>{title}</h2>
+      <p>{text}</p>
+      
+      <div class="button-group">
+        <button class="yes-btn" on:click={handleYes}>Yes</button>
+        <button class="no-btn" on:click={handleNo}>No</button>
+      </div>
+    </div>
   </div>
+{:else}
+  <div class="speech-box" style={`background-image: url(${boxImage});`}>
+    <div class="header">
+      {title}
+    </div>
 
-  <button class="close" on:click={handleClose}>X</button>
+    <button class="close" on:click={handleClose}>X</button>
 
-  <div
-    class="content"
-    on:click={skipTyping}
-  >
-    {displayedText}
+    <div
+      class="content"
+      on:click={skipTyping}
+    >
+      {displayedText}
+    </div>
+
+    {#if portalUrl}
+      <button class="next" on:click={handleNext}>
+        ->
+      </button>
+    {/if}
   </div>
-
-  {#if portalUrl}
-    <button class="next" on:click={handleNext}>
-      ->
-    </button>
-  {/if}
-</div>
+{/if}
 
 <style>
   .speech-box {
