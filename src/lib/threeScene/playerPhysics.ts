@@ -5,7 +5,7 @@ import { depenetrateWithBvh, sweepWithBvh } from './characterCollision';
 
 export const PLAYER_PHYSICS_RADIUS = 0.15;
 const GRAVITY = -9.82;
-const MAX_STEP_HEIGHT = 0.35;
+const MAX_STEP_HEIGHT = 0.4;
 const MAX_DROP = 0.4;
 const FLOOR_FOLLOW = 14;
 
@@ -171,7 +171,7 @@ function followFloor(
   if (dy > MAX_STEP_HEIGHT || dy < -MAX_DROP) return false;
 
   if (dy > 0.01) {
-    const maxRise = moveSpeed * dt * 1.1;
+    const maxRise = moveSpeed * dt * 1.5;
     pos.y += Math.min(dy, maxRise);
   } else if (dy < -0.01) {
     pos.y += dy * Math.min(1, FLOOR_FOLLOW * dt);

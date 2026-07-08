@@ -3,12 +3,14 @@
   import Overlay from './components/Overlay.svelte';
   import InfoPanel from './components/InfoPanel.svelte';
   import Loading from './components/Loading.svelte';
+  import MobileJoystick from './components/MobileJoystick.svelte';
   import { ThreeScene } from './lib/ThreeScene';
 
   let show = false;
   let currentComponent: any = null;
   let scene: ThreeScene | null = null;
   let isLoading = true;
+  let isMobile = false;
 
   const components: Record<string, any> = {
     InfoPanel
@@ -25,6 +27,9 @@
   }
 
   onMount(() => {
+    // Detect mobile
+    isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
     window.addEventListener('open-webview', openHandler as EventListener);
     const canvas = document.getElementById('three-canvas') as HTMLCanvasElement;
     scene = new ThreeScene(canvas);
@@ -47,6 +52,10 @@
 <div class="fullscreen-canvas">
   <canvas id="three-canvas" />
 </div>
+
+{#if isMobile}
+  <MobileJoystick />
+{/if}
 
 {#if isLoading}
   <Loading />

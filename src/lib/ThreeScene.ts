@@ -11,6 +11,7 @@ import { initPortalFlipbookVisibility, resetPortalFlipbookCache, syncPortalFlipb
 import { findSpawnFloorY } from './threeScene/floorQuery';
 import { PlayerPhysics } from './threeScene/playerPhysics';
 import { writable } from 'svelte/store';
+import { joystickData } from '../stores/joystick';
 
 export class ThreeScene {
   renderer: THREE.WebGLRenderer;
@@ -47,6 +48,8 @@ export class ThreeScene {
   playerPhysics: PlayerPhysics | null = null;
   room: THREE.Object3D | null = null;
   portalFlipbookTime = 0;
+  joystickUnsubscribe: (() => void) | null = null;
+  joystickInput = { x: 0, y: 0 };
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -323,6 +326,25 @@ export class ThreeScene {
       if (mapped) setKey(mapped, false);
     };
 
+    // Subscribe to joystick input
+    this.joystickUnsubscribe = joystickData.subscribe((data) => {
+      const joystickEntries = Object.values(data);
+      if (joystickEntries.length > 0) {
+        const joystick = joystickEntries[0];
+        this.joystickInput = {
+          x: joystick.x,
+          y: joystick.y
+        };
+      } else {
+        this.joystickInput = { x: 0, y: 0 };
+      }
+    });
+
+    // Listen for tap to jump
+    window.addEventListener('joystick-jump', () => {
+      this.jumpPressed = true;
+    });
+
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     this.canvas.addEventListener('click', (ev) => {
@@ -382,6 +404,7 @@ export class ThreeScene {
     resetPortalFlipbookCache();
     this.playerPhysics?.dispose();
     this.playerPhysics = null;
+    this.joystickUnsubscribe?.();
     this.renderer.dispose();
     (this.canvas as any).remove();
   }
