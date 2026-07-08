@@ -61,7 +61,7 @@ export function findFloorY(
 
     _origin.set(x, feetY + 0.25, z);
     ctx.raycaster.set(_origin, _dir);
-    ctx.raycaster.far = 2.5;
+    ctx.raycaster.far = 3.0;
     const hits = ctx.raycaster.intersectObjects(ctx.collidableMeshes, true);
     for (const hit of hits) {
         if (isWalkableHit(hit)) return hit.point.y;

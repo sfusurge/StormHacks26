@@ -27,15 +27,19 @@ const _portalPos = new THREE.Vector3();
 function checkInteractableContact(ctx: {
   character?: THREE.Object3D;
   interactables?: THREE.Object3D[];
-  portalRedirectTriggered?: boolean;
+  portalInRange?: boolean;
 }) {
-  if (!ctx.character || !ctx.interactables?.length || ctx.portalRedirectTriggered) return;
+  if (!ctx.character || !ctx.interactables?.length) return;
 
   ctx.character.updateMatrixWorld(true);
   ctx.character.getWorldPosition(_charPos);
 
+  let nearestDistance = Infinity;
+  let nearestPortal: { object: THREE.Object3D; url: string; name: string } | null = null;
+
   for (const obj of ctx.interactables) {
-    const url = (obj as THREE.Object3D & { userData: { url?: string } }).userData?.url;
+    const url = (obj as THREE.Object3D & { userData: { url?: string; name?: string } }).userData?.url;
+    const name = (obj as THREE.Object3D & { userData: { name?: string } }).userData?.name || 'Portal';
     if (!url) continue;
 
     obj.updateMatrixWorld(true);
@@ -44,12 +48,32 @@ function checkInteractableContact(ctx: {
     const dx = _charPos.x - _portalPos.x;
     const dz = _charPos.z - _portalPos.z;
     const dy = Math.abs(_charPos.y - _portalPos.y);
+    const distanceSq = dx * dx + dz * dz;
 
-    if (dx * dx + dz * dz <= 0.64 && dy <= 1.2) {
-      ctx.portalRedirectTriggered = true;
-      window.location.replace(url);
-      return;
+    // In range if within 0.8 units horizontally and 1.2 units vertically
+    const inRange = distanceSq <= 0.64 && dy <= 1.2;
+
+    if (distanceSq < nearestDistance) {
+      nearestDistance = distanceSq;
+      if (inRange) {
+        nearestPortal = { object: obj, url, name };
+      }
     }
+  }
+
+  // Check if we've just entered portal range
+  if (nearestPortal && !ctx.portalInRange) {
+    ctx.portalInRange = true;
+    window.dispatchEvent(new CustomEvent('show-speech', {
+      detail: {
+        title: nearestPortal.name,
+        text: 'Click the arrow to enter this location.',
+        portalUrl: nearestPortal.url
+      }
+    }));
+  } else if (!nearestPortal && ctx.portalInRange) {
+    ctx.portalInRange = false;
+    window.dispatchEvent(new CustomEvent('hide-speech'));
   }
 }
 
@@ -82,10 +106,28 @@ export function updateCharacter(ctx: any, dt: number) {
 
   let inputForward = 0;
   let inputTurn = 0;
+
+  // Keyboard input
   if (ctx.keys['w'] || ctx.keys['arrowup']) inputForward += 1;
   if (ctx.keys['s'] || ctx.keys['arrowdown']) inputForward -= 1;
   if (ctx.keys['a'] || ctx.keys['arrowleft']) inputTurn += 1;
   if (ctx.keys['d'] || ctx.keys['arrowright']) inputTurn -= 1;
+
+  // Joystick input (mobile)
+  if (ctx.joystickInput) {
+    const joyDeadzone = 0.25;
+    const joyX = Math.abs(ctx.joystickInput.x) > joyDeadzone ? ctx.joystickInput.x : 0;
+    const joyY = Math.abs(ctx.joystickInput.y) > joyDeadzone ? ctx.joystickInput.y : 0;
+    
+    // Joystick Y is forward/backward (inverted from screen coords)
+    inputForward += -joyY * 0.6;
+    // Joystick X is turning left/right (negated to match keyboard)
+    inputTurn += -joyX * 0.6;
+  }
+
+  // Clamp inputs to [-1, 1]
+  inputForward = Math.max(-1, Math.min(1, inputForward));
+  inputTurn = Math.max(-1, Math.min(1, inputTurn));
 
   const movingForward = inputForward > 0;
   const turning = Math.abs(inputTurn) > 1e-6;
@@ -111,15 +153,19 @@ export function updateCharacter(ctx: any, dt: number) {
   const hasMoveInput = _moveDir.lengthSq() > 1e-6;
   let [vx, vz] = physics.getHorizontalVelocity();
 
+  const wasGrounded = physics.grounded;
+  const inAir = !wasGrounded;
+
   if (hasMoveInput) {
     _moveDir.normalize();
-    const accel = ctx.keys['shift'] ? RUN_ACCEL : MOVE_ACCEL;
+    const baseAccel = ctx.keys['shift'] ? RUN_ACCEL : MOVE_ACCEL;
+    const accel = baseAccel * (inAir ? 0.35 : 1);
     const targetVx = _moveDir.x * moveSpeed;
     const targetVz = _moveDir.z * moveSpeed;
     const maxDelta = accel * moveDt;
     vx = moveToward(vx, targetVx, maxDelta);
     vz = moveToward(vz, targetVz, maxDelta);
-  } else {
+  } else if (wasGrounded) {
     [vx, vz] = decelerate(vx, vz, MOVE_DECEL, moveDt);
   }
 

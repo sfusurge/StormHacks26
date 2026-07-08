@@ -11,6 +11,7 @@ import { initPortalFlipbookVisibility, resetPortalFlipbookCache, syncPortalFlipb
 import { findSpawnFloorY } from './threeScene/floorQuery';
 import { PlayerPhysics } from './threeScene/playerPhysics';
 import { writable } from 'svelte/store';
+import { joystickData } from '../stores/joystick';
 
 export class ThreeScene {
   renderer: THREE.WebGLRenderer;
@@ -47,6 +48,8 @@ export class ThreeScene {
   playerPhysics: PlayerPhysics | null = null;
   room: THREE.Object3D | null = null;
   portalFlipbookTime = 0;
+  joystickUnsubscribe: (() => void) | null = null;
+  joystickInput = { x: 0, y: 0 };
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -323,6 +326,25 @@ export class ThreeScene {
       if (mapped) setKey(mapped, false);
     };
 
+    // Subscribe to joystick input
+    this.joystickUnsubscribe = joystickData.subscribe((data) => {
+      const joystickEntries = Object.values(data);
+      if (joystickEntries.length > 0) {
+        const joystick = joystickEntries[0];
+        this.joystickInput = {
+          x: joystick.x,
+          y: joystick.y
+        };
+      } else {
+        this.joystickInput = { x: 0, y: 0 };
+      }
+    });
+
+    // Listen for tap to jump
+    window.addEventListener('joystick-jump', () => {
+      this.jumpPressed = true;
+    });
+
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     this.canvas.addEventListener('click', (ev) => {
@@ -354,6 +376,49 @@ export class ThreeScene {
     }
   }
 
+  // dialogues
+  speechTriggers = [
+    {
+      position: new THREE.Vector3(1, 0, -5.85),
+      radius: 1,
+      title: 'Surge World',
+      text: 'Welcome player!'
+    },
+    {
+      position: new THREE.Vector3(1.12, 2.76, 0.11),
+      radius: 1,
+      title: 'Taskboard',
+      text: 'This is a small text about the tasks...'
+    },
+  ];
+  activeTrigger: any = null;
+
+  updateSpeechTriggers() {
+    if (!this.character) return;
+
+    const playerPos = this.character.position;
+    let nearTrigger = null;
+
+    // find if player is near any trigger
+    for (const trigger of this.speechTriggers) {
+      const distance = playerPos.distanceTo(trigger.position);
+      if (distance < trigger.radius) {
+        nearTrigger = trigger;
+        break;
+      }
+    }
+
+    // only emit events if the active trigger changed
+    if (nearTrigger !== this.activeTrigger) {
+      this.activeTrigger = nearTrigger;
+      if (nearTrigger) {
+        window.dispatchEvent(new CustomEvent('show-speech', { detail: nearTrigger }));
+      } else {
+        window.dispatchEvent(new CustomEvent('hide-speech'));
+      }
+    }
+  }
+
   updateCharacter(dt: number) {
     updateCharacterInternal(this, dt);
   }
@@ -370,6 +435,7 @@ export class ThreeScene {
       this.portalFlipbookTime += dt;
       syncPortalFlipbookFromTime(this.room, this.portalFlipbookTime);
       this.updateCharacter(dt);
+      this.updateSpeechTriggers();
       this.updateCamera();
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(tick);
@@ -382,6 +448,7 @@ export class ThreeScene {
     resetPortalFlipbookCache();
     this.playerPhysics?.dispose();
     this.playerPhysics = null;
+    this.joystickUnsubscribe?.();
     this.renderer.dispose();
     (this.canvas as any).remove();
   }
