@@ -15,7 +15,7 @@ const ROT_IN_PLACE_RATE = 2;
 const ROT_BACKUP_RATE = 16;
 const MAX_MOVE_DT = 0.025;
 const JUMP_VELOCITY = 3.5;
-const CLIMB_VELOCITY = 2;
+const CLIMB_VELOCITY = 1.7;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _camForward = new THREE.Vector3();
@@ -75,6 +75,33 @@ function checkInteractableContact(ctx: {
   } else if (!nearestPortal && ctx.portalInRange) {
     ctx.portalInRange = false;
     window.dispatchEvent(new CustomEvent('hide-speech'));
+  }
+}
+
+function updateAnimation(ctx: any, speed: number, isClimbing: boolean, isGrounded: boolean) {
+  if (isClimbing) {
+    if (ctx.currentAction?.getClip().name !== "climb") {
+      ctx.playAnimation("climb");
+    }
+  } else if (speed > 0.1) {
+    if (ctx.currentAction?.getClip().name !== "walk") {
+      ctx.playAnimation("walk");
+    }
+  } else {
+    if (ctx.currentAction?.getClip().name !== "idle") {
+      ctx.playAnimation("idle");
+    }
+  }
+
+  // freeze animation
+  if (ctx.currentAction) {
+    if (isClimbing) {
+      // stop climbing animation if no input
+      ctx.currentAction.paused = !ctx.keys["w"] && !ctx.keys["s"];
+    } else {
+      // freeze idle/walk animation if not grounded
+      ctx.currentAction.paused = !isGrounded;
+    }
   }
 }
 
@@ -254,27 +281,5 @@ export function updateCharacter(ctx: any, dt: number) {
 
   checkInteractableContact(ctx);
 
-  // update animation
-  if (ctx.isClimbing) {
-    if (ctx.currentAction?.getClip().name !== "climb") {
-        ctx.playAnimation("climb");
-    }
-  } else {
-      if (currentSpeed > 0.1) {
-          if (ctx.currentAction?.getClip().name !== "walk") {
-              ctx.playAnimation("walk");
-          }
-      } else {
-          if (ctx.currentAction?.getClip().name !== "idle") {
-              ctx.playAnimation("idle");
-          }
-      }
-  }
-
-  // freeze animation if in air but not climbing
-  if (!ctx.playerBox.intersectsBox(ctx.ladderBox)) {
-    if (ctx.currentAction) {
-      ctx.currentAction.paused = !ctx.isGrounded;
-    }
-  }
+  updateAnimation(ctx, currentSpeed, ctx.isClimbing, ctx.isGrounded);
 }

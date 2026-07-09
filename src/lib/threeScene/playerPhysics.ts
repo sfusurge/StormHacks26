@@ -80,7 +80,6 @@ export class PlayerPhysics {
 
   stopClimbing() {
     this.isClimbing = false;
-    this.body.velocity.y = 0;
   }
 
   isGrounded(
