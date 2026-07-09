@@ -219,29 +219,32 @@ export function updateCharacter(ctx: any, dt: number) {
     console.log('Player is intersecting ladder box');
   }
 
-  // ladder climbing
   ctx.isClimbing = ctx.playerBox.intersectsBox(ctx.ladderBox);
-  if (ctx.isClimbing) {
-    if (ctx.keys['w']) {
-      physics.climb(CLIMB_VELOCITY);
-    }
-    else if (ctx.keys['s']) {
-      physics.climb(-CLIMB_VELOCITY);
-    }
-    else {
-      physics.climb(0); // stay still on ladder
-    }
 
-  } else {
-    physics.stopClimbing();
+  if (ctx.jumpPressed) {
+    if (ctx.isClimbing) {
+      // jump off lader
+      physics.stopClimbing();
+      ctx.isClimbing = false;
+      physics.jump(JUMP_VELOCITY);
+    } else if (physics.isGrounded(queryFloor, footOffset)) {
+      // normal jump from ground
+      physics.jump(JUMP_VELOCITY);
+    }
+    ctx.jumpPressed = false;
   }
 
-  if (physics.isGrounded(queryFloor, footOffset) && ctx.jumpPressed) {
-    physics.jump(JUMP_VELOCITY);
-    ctx.jumpPressed = false;
-
-  } else if (ctx.jumpPressed) {
-    ctx.jumpPressed = false;
+  // ladder climbing logic
+  if (ctx.isClimbing) {
+    if (ctx.keys["w"]) {
+      physics.climb(CLIMB_VELOCITY);
+    } else if (ctx.keys["s"]) {
+      physics.climb(-CLIMB_VELOCITY);
+    } else {
+      physics.climb(0); // freeze on ladder if no input
+    }
+  } else {
+    physics.stopClimbing();
   }
 
   physics.step(
