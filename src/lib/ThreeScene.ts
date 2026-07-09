@@ -500,17 +500,21 @@ export class ThreeScene {
   }
 
   playAnimation(name: string) {
-    if (!this.mixer || !this.character) return; // No mixer or character available
-    if (this.currentAction === this.actions[name]) { return; } // Already playing this action
+    const next = this.actions[name];
+    if (!next) return;
 
-    this.currentAction?.setEffectiveTimeScale(1);
-    this.currentAction?.setEffectiveWeight(1);
-    this.currentAction?.crossFadeTo(this.actions[name], 0.3, true);
+    if (this.currentAction === next) return; // Already playing this action
 
-    this.currentAction = this.actions[name] || null;
-    this.currentAction?.reset().play();
+    this.currentAction?.fadeOut(0.4);
 
-    this.currentAction?.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.2).play();
+    next
+        .reset()
+        .setEffectiveTimeScale(1)
+        .setEffectiveWeight(1)
+        .fadeIn(0.4)
+        .play();
+
+    this.currentAction = next;
   }
 
   dispose() {
