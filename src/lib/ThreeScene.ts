@@ -155,10 +155,12 @@ export class ThreeScene {
           // helper.material.depthTest = false;
           // helper.renderOrder = 999;
           // this.scene.add(helper);
-          const bedLadderHelper = new THREE.Box3Helper(this.bedLadderBox, 0xff7034);
-          bedLadderHelper.material.depthTest = false;
-          bedLadderHelper.renderOrder = 999;
-          this.scene.add(bedLadderHelper);
+
+          // const bedLadderHelper = new THREE.Box3Helper(this.bedLadderBox, 0xff7034);
+          // bedLadderHelper.material.depthTest = false;
+          // bedLadderHelper.renderOrder = 999;
+          // this.scene.add(bedLadderHelper);
+
           // const playerHelper = new THREE.Box3Helper(this.playerBox, 0x00ff00);
           // this.scene.add(playerHelper);
 
