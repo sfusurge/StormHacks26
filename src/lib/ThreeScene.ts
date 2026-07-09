@@ -483,9 +483,10 @@ export class ThreeScene {
 
   playAnimation(name: string) {
     if (!this.mixer || !this.character) return; // No mixer or character available
-
     if (this.currentAction === this.actions[name]) { return; } // Already playing this action
 
+    this.currentAction?.setEffectiveTimeScale(1);
+    this.currentAction?.setEffectiveWeight(1);
     this.currentAction?.crossFadeTo(this.actions[name], 0.3, true);
 
     this.currentAction = this.actions[name] || null;
