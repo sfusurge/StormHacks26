@@ -29,6 +29,8 @@ export class ThreeScene {
   collisionBounds: THREE.Box3 | null = null;
   roomLoaded = false;
   isLoading = writable(true);
+  mixer: THREE.AnimationMixer | null = null;
+  action: THREE.AnimationAction | null = null;
 
   collidableMeshes: THREE.Mesh[] = [];
   cameraCollisionMesh: THREE.Mesh | null = null;
@@ -148,7 +150,7 @@ export class ThreeScene {
     );
   }
 
-  makeCharacter() {
+  async makeCharacter() {
     const placeholderGeom = new THREE.BoxGeometry(0.3, 0.64, 0.3);
     const placeholderMat = new THREE.MeshStandardMaterial({ color: 0x3377ff });
     const placeholder = new THREE.Mesh(placeholderGeom, placeholderMat);
@@ -157,7 +159,9 @@ export class ThreeScene {
     this.scene.add(placeholder);
     this._alignCharacterToFloor();
 
-    const url = new URL('../../assets/models/CesiumMan.glb', import.meta.url).href;
+    const url = new URL('../../assets/models/sparky/sparky_idle.glb', import.meta.url).href;
+    // const sparkyGlb = await GLTFLoader.loadAsync('../../assets/models/sparky/sparky_walk.glb');
+    
     this.loader.load(url, (g) => {
       const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
       const box = new THREE.Box3().setFromObject(obj);
@@ -180,7 +184,19 @@ export class ThreeScene {
       this.scene.add(obj);
       this._snapToFloor();
       this._syncPlayerPhysics();
-    });
+
+      // play animation
+      this.mixer = new THREE.AnimationMixer(obj);
+      if (g.animations?.length) {
+        const action = this.mixer.clipAction(g.animations[0]);
+        action.play();
+      }
+    },
+    undefined, 
+    (error) => {
+      console.error('Error loading character model:', error);
+    }
+  );
   }
 
   _syncPlayerPhysics() {
@@ -432,6 +448,12 @@ export class ThreeScene {
     const tick = () => {
       if (this.disposed) return;
       const dt = clock.getDelta();
+
+      // update model animation
+      if (this.mixer) {
+        this.mixer.update(dt);
+      }
+
       this.portalFlipbookTime += dt;
       syncPortalFlipbookFromTime(this.room, this.portalFlipbookTime);
       this.updateCharacter(dt);
