@@ -32,8 +32,8 @@ export class ThreeScene {
   mixer: THREE.AnimationMixer | null = null;
   actions: Record<string, THREE.AnimationAction> = {};
   currentAction: THREE.AnimationAction | null = null;
-  ladder: THREE.Mesh | null = null;
   ladderBox: THREE.Box3 | null = null;
+  bedLadderBox: THREE.Box3 | null = null;
   playerBox: THREE.Box3 | null = null;
 
   collidableMeshes: THREE.Mesh[] = [];
@@ -144,7 +144,10 @@ export class ThreeScene {
               new THREE.Vector3(4.07, 1.25, -0.56),
               new THREE.Vector3(0.1, 2, 0.6)
           );
-
+          this.bedLadderBox = new THREE.Box3().setFromCenterAndSize(
+            new THREE.Vector3(1, 3, 3.5),
+            new THREE.Vector3(0.1, 0.85, 0.35)
+          );
           this.playerBox = new THREE.Box3();
 
           // SHOW BOUNDING BOXES FOR DEBUGGING
@@ -152,6 +155,10 @@ export class ThreeScene {
           // helper.material.depthTest = false;
           // helper.renderOrder = 999;
           // this.scene.add(helper);
+          const bedLadderHelper = new THREE.Box3Helper(this.bedLadderBox, 0xff7034);
+          bedLadderHelper.material.depthTest = false;
+          bedLadderHelper.renderOrder = 999;
+          this.scene.add(bedLadderHelper);
           // const playerHelper = new THREE.Box3Helper(this.playerBox, 0x00ff00);
           // this.scene.add(playerHelper);
 

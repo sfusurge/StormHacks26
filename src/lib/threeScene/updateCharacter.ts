@@ -215,11 +215,7 @@ export function updateCharacter(ctx: any, dt: number) {
 
   ctx.isBackingUp = false;
 
-  if (ctx.playerBox.intersectsBox(ctx.ladderBox)) {
-    console.log('Player is intersecting ladder box');
-  }
-
-  ctx.isClimbing = ctx.playerBox.intersectsBox(ctx.ladderBox);
+  ctx.isClimbing = ctx.playerBox.intersectsBox(ctx.ladderBox) || ctx.playerBox.intersectsBox(ctx.bedLadderBox);
 
   if (ctx.jumpPressed) {
     if (ctx.isClimbing) {
