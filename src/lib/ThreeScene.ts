@@ -32,6 +32,9 @@ export class ThreeScene {
   mixer: THREE.AnimationMixer | null = null;
   actions: Record<string, THREE.AnimationAction> = {};
   currentAction: THREE.AnimationAction | null = null;
+  ladder: THREE.Mesh | null = null;
+  ladderBox: THREE.Box3 | null = null;
+  playerBox: THREE.Box3 | null = null;
 
   collidableMeshes: THREE.Mesh[] = [];
   cameraCollisionMesh: THREE.Mesh | null = null;
@@ -135,6 +138,25 @@ export class ThreeScene {
               m.geometry.computeVertexNormals();
             }
           });
+
+          // initialize bounding boxes
+          // this.ladder = obj.getObjectByName("Ladder");
+          // this.ladderBox = new THREE.Box3().setFromObject(this.ladder ?? new THREE.Object3D());
+          this.ladderBox = new THREE.Box3().setFromCenterAndSize(
+              new THREE.Vector3(2, 1.4, -0.5),
+              new THREE.Vector3(0.8, 2.8, 1.0)
+          );
+          
+
+          const helper = new THREE.Box3Helper(this.ladderBox, 0xff7034);
+          helper.material.depthTest = false;
+          helper.renderOrder = 999;
+          this.scene.add(helper);
+
+          
+          this.playerBox = new THREE.Box3();
+          const playerHelper = new THREE.Box3Helper(this.playerBox, 0x00ff00);
+          this.scene.add(playerHelper);
 
           mergeRoomMeshesByMaterial(obj, (node) => animatedNodeNames.has(node.name));
 

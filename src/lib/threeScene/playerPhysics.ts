@@ -69,6 +69,11 @@ export class PlayerPhysics {
     this.body.wakeUp();
   }
 
+  climb(velocity: number) {
+    this.body.velocity.y = velocity;
+    this.body.wakeUp();
+  }
+
   isGrounded(
     findFloorY: (x: number, z: number, feetY: number) => number | null,
     footOffset: number

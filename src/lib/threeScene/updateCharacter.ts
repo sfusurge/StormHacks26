@@ -15,6 +15,7 @@ const ROT_IN_PLACE_RATE = 2;
 const ROT_BACKUP_RATE = 16;
 const MAX_MOVE_DT = 0.025;
 const JUMP_VELOCITY = 3.5;
+const CLIMB_VELOCITY = 3.5;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _camForward = new THREE.Vector3();
@@ -93,6 +94,20 @@ function decelerate(vx: number, vz: number, decel: number, dt: number): [number,
 
 export function updateCharacter(ctx: any, dt: number) {
   if (!ctx.character || !ctx.roomLoaded || !ctx.roomBox || !ctx.playerPhysics) return;
+  
+  // Update playerBox based on character position and size
+  const pos = ctx.character.position;
+  ctx.playerBox.min.set(
+    pos.x - 0.25,
+    pos.y,
+    pos.z - 0.2
+  );
+
+  ctx.playerBox.max.set(
+      pos.x + 0.25,
+      pos.y + 0.65,
+      pos.z + 0.2
+  );
 
   const bvh = getCollisionBvh(ctx);
   if (!bvh) return;
@@ -173,10 +188,20 @@ export function updateCharacter(ctx: any, dt: number) {
 
   ctx.isBackingUp = false;
 
+  if (ctx.playerBox.intersectsBox(ctx.ladderBox)) {
+    console.log('Player is intersecting ladder box');
+  }
+
+  // ladder climbing
+  if (ctx.playerBox.intersectsBox(ctx.ladderBox) && ctx.keys['w']) {
+    physics.climb(CLIMB_VELOCITY);
+    ctx.playAnimation('climb');
+  }
+
   if (physics.isGrounded(queryFloor, footOffset) && ctx.jumpPressed) {
     physics.jump(JUMP_VELOCITY);
     ctx.jumpPressed = false;
-    // freeze animation while in air
+
   } else if (ctx.jumpPressed) {
     ctx.jumpPressed = false;
   }
@@ -229,8 +254,10 @@ export function updateCharacter(ctx: any, dt: number) {
     }
   }
 
-  // freeze animation if in air
-  if (ctx.currentAction) {
-    ctx.currentAction.paused = !ctx.isGrounded;
+  // freeze animation if in air but not climbing
+  if (!ctx.playerBox.intersectsBox(ctx.ladderBox)) {
+    if (ctx.currentAction) {
+      ctx.currentAction.paused = !ctx.isGrounded;
+    }
   }
 }
