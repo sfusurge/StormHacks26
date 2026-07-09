@@ -486,10 +486,12 @@ export class ThreeScene {
 
     if (this.currentAction === this.actions[name]) { return; } // Already playing this action
 
-    this.currentAction?.fadeOut(0.2);
+    this.currentAction?.crossFadeTo(this.actions[name], 0.3, true);
 
     this.currentAction = this.actions[name] || null;
     this.currentAction?.reset().play();
+
+    this.currentAction?.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.2).play();
   }
 
   dispose() {
