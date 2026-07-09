@@ -125,14 +125,14 @@ export function updateCharacter(ctx: any, dt: number) {
   // Update playerBox based on character position and size
   const pos = ctx.character.position;
   ctx.playerBox.min.set(
-    pos.x - 0.25,
+    pos.x - 0.15,
     pos.y,
     pos.z - 0.2
   );
 
   ctx.playerBox.max.set(
-      pos.x + 0.25,
-      pos.y + 0.65,
+      pos.x + 0.15,
+      pos.y + 0.6,
       pos.z + 0.2
   );
 
