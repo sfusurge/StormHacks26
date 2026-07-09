@@ -243,6 +243,11 @@ export function updateCharacter(ctx: any, dt: number) {
     } else {
       physics.climb(0); // freeze on ladder if no input
     }
+
+    // stop sideways drift while not moving on ladder
+    if (ctx.isClimbing && inputForward === 0 && inputTurn === 0) {
+        physics.setHorizontalVelocity(0, 0);
+    }
   } else {
     physics.stopClimbing();
   }
