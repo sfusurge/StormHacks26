@@ -342,11 +342,7 @@ export class ThreeScene {
         ArrowLeft: 'arrowleft', ArrowRight: 'arrowright',
       };
       const mapped = codeMap[e.code];
-
-      if (mapped) {
-        setKey(mapped, true);
-        this.playAnimation('walk');
-      }
+      if (mapped) setKey(mapped, true);
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
@@ -359,10 +355,7 @@ export class ThreeScene {
         ArrowLeft: 'arrowleft', ArrowRight: 'arrowright',
       };
       const mapped = codeMap[e.code];
-      if (mapped) {
-        setKey(mapped, false);
-        this.playAnimation('idle');
-      }
+      if (mapped) setKey(mapped, false);
     };
 
     // Subscribe to joystick input

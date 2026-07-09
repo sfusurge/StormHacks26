@@ -176,6 +176,7 @@ export function updateCharacter(ctx: any, dt: number) {
   if (physics.isGrounded(queryFloor, footOffset) && ctx.jumpPressed) {
     physics.jump(JUMP_VELOCITY);
     ctx.jumpPressed = false;
+    // freeze animation while in air
   } else if (ctx.jumpPressed) {
     ctx.jumpPressed = false;
   }
@@ -216,4 +217,20 @@ export function updateCharacter(ctx: any, dt: number) {
   }
 
   checkInteractableContact(ctx);
+
+  // update animation
+  if (currentSpeed > 0.1) {
+    if (ctx.currentAction?.getClip().name !== 'walk') {
+      ctx.playAnimation('walk');
+    }
+  } else {
+    if (ctx.currentAction?.getClip().name !== 'idle') {
+      ctx.playAnimation('idle');
+    }
+  }
+
+  // freeze animation if in air
+  if (ctx.currentAction) {
+    ctx.currentAction.paused = !ctx.isGrounded;
+  }
 }
