@@ -193,9 +193,20 @@ export function updateCharacter(ctx: any, dt: number) {
   }
 
   // ladder climbing
-  if (ctx.playerBox.intersectsBox(ctx.ladderBox) && ctx.keys['w']) {
-    physics.climb(CLIMB_VELOCITY);
-    ctx.playAnimation('climb');
+  ctx.isClimbing = ctx.playerBox.intersectsBox(ctx.ladderBox);
+  if (ctx.isClimbing) {
+    if (ctx.keys['w']) {
+      physics.climb(CLIMB_VELOCITY);
+    }
+    else if (ctx.keys['s']) {
+      physics.climb(-CLIMB_VELOCITY);
+    }
+    else {
+      physics.climb(0); // stay still on ladder
+    }
+
+  } else {
+    physics.stopClimbing();
   }
 
   if (physics.isGrounded(queryFloor, footOffset) && ctx.jumpPressed) {
@@ -244,14 +255,20 @@ export function updateCharacter(ctx: any, dt: number) {
   checkInteractableContact(ctx);
 
   // update animation
-  if (currentSpeed > 0.1) {
-    if (ctx.currentAction?.getClip().name !== 'walk') {
-      ctx.playAnimation('walk');
+  if (ctx.isClimbing) {
+    if (ctx.currentAction?.getClip().name !== "climb") {
+        ctx.playAnimation("climb");
     }
   } else {
-    if (ctx.currentAction?.getClip().name !== 'idle') {
-      ctx.playAnimation('idle');
-    }
+      if (currentSpeed > 0.1) {
+          if (ctx.currentAction?.getClip().name !== "walk") {
+              ctx.playAnimation("walk");
+          }
+      } else {
+          if (ctx.currentAction?.getClip().name !== "idle") {
+              ctx.playAnimation("idle");
+          }
+      }
   }
 
   // freeze animation if in air but not climbing

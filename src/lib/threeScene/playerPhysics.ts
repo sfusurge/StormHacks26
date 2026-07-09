@@ -21,6 +21,7 @@ export class PlayerPhysics {
   world: CANNON.World;
   body: CANNON.Body;
   readonly radius = PLAYER_PHYSICS_RADIUS;
+  isClimbing = false;
 
   constructor() {
     this.world = new CANNON.World();
@@ -35,6 +36,8 @@ export class PlayerPhysics {
     });
     this.body.addShape(new CANNON.Sphere(this.radius));
     this.world.addBody(this.body);
+
+    
   }
 
   getHorizontalVelocity(): [number, number] {
@@ -70,8 +73,14 @@ export class PlayerPhysics {
   }
 
   climb(velocity: number) {
+    this.isClimbing = true;
     this.body.velocity.y = velocity;
     this.body.wakeUp();
+  }
+
+  stopClimbing() {
+    this.isClimbing = false;
+    this.body.velocity.y = 0;
   }
 
   isGrounded(
@@ -118,8 +127,12 @@ export class PlayerPhysics {
     }
 
     if (!grounded) {
-      vel.y += GRAVITY * dt;
-      _pos.y += vel.y * dt;
+      if (this.isClimbing) {
+        _pos.y += vel.y * dt;
+      } else {
+        vel.y += GRAVITY * dt;
+        _pos.y += vel.y * dt;
+      }
 
       if (vel.y > 0) {
         const prevY = _pos.y - vel.y * dt;

@@ -144,17 +144,15 @@ export class ThreeScene {
               new THREE.Vector3(4.07, 1.45, -0.5),
               new THREE.Vector3(0.1, 2.4, 0.7)
           );
-          
 
-          const helper = new THREE.Box3Helper(this.ladderBox, 0xff7034);
-          helper.material.depthTest = false;
-          helper.renderOrder = 999;
-          this.scene.add(helper);
+          // const helper = new THREE.Box3Helper(this.ladderBox, 0xff7034);
+          // helper.material.depthTest = false;
+          // helper.renderOrder = 999;
+          // this.scene.add(helper);
 
-          
           this.playerBox = new THREE.Box3();
-          const playerHelper = new THREE.Box3Helper(this.playerBox, 0x00ff00);
-          this.scene.add(playerHelper);
+          // const playerHelper = new THREE.Box3Helper(this.playerBox, 0x00ff00);
+          // this.scene.add(playerHelper);
 
           mergeRoomMeshesByMaterial(obj, (node) => animatedNodeNames.has(node.name));
 
