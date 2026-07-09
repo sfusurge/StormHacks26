@@ -15,7 +15,7 @@ const ROT_IN_PLACE_RATE = 2;
 const ROT_BACKUP_RATE = 16;
 const MAX_MOVE_DT = 0.025;
 const JUMP_VELOCITY = 3.5;
-const CLIMB_VELOCITY = 3.5;
+const CLIMB_VELOCITY = 2;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _camForward = new THREE.Vector3();

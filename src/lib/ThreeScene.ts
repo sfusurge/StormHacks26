@@ -140,11 +140,9 @@ export class ThreeScene {
           });
 
           // initialize bounding boxes
-          // this.ladder = obj.getObjectByName("Ladder");
-          // this.ladderBox = new THREE.Box3().setFromObject(this.ladder ?? new THREE.Object3D());
           this.ladderBox = new THREE.Box3().setFromCenterAndSize(
-              new THREE.Vector3(2, 1.4, -0.5),
-              new THREE.Vector3(0.8, 2.8, 1.0)
+              new THREE.Vector3(4.07, 1.45, -0.5),
+              new THREE.Vector3(0.1, 2.4, 0.7)
           );
           
 
