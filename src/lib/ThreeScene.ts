@@ -30,7 +30,8 @@ export class ThreeScene {
   roomLoaded = false;
   isLoading = writable(true);
   mixer: THREE.AnimationMixer | null = null;
-  action: THREE.AnimationAction | null = null;
+  actions: Record<string, THREE.AnimationAction> = {};
+  currentAction: THREE.AnimationAction | null = null;
 
   collidableMeshes: THREE.Mesh[] = [];
   cameraCollisionMesh: THREE.Mesh | null = null;
@@ -159,10 +160,14 @@ export class ThreeScene {
     this.scene.add(placeholder);
     this._alignCharacterToFloor();
 
-    const url = new URL('../../assets/models/sparky/sparky_idle.glb', import.meta.url).href;
-    // const sparkyGlb = await GLTFLoader.loadAsync('../../assets/models/sparky/sparky_walk.glb');
+    const climbUrl = new URL('../../assets/models/sparky/sparky_climb.glb', import.meta.url).href;
+    const idleUrl = new URL('../../assets/models/sparky/sparky_idle.glb', import.meta.url).href;
+    const lookUrl = new URL('../../assets/models/sparky/sparky_look.glb', import.meta.url).href;
+    const thinkUrl = new URL('../../assets/models/sparky/sparky_think.glb', import.meta.url).href;
+    const walkUrl = new URL('../../assets/models/sparky/sparky_walk.glb', import.meta.url).href;
+    const waveUrl = new URL('../../assets/models/sparky/sparky_wave.glb', import.meta.url).href;
     
-    this.loader.load(url, (g) => {
+    await this.loader.load(idleUrl, async (g) => {
       const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
       const box = new THREE.Box3().setFromObject(obj);
       const size = new THREE.Vector3();
@@ -185,18 +190,29 @@ export class ThreeScene {
       this._snapToFloor();
       this._syncPlayerPhysics();
 
-      // play animation
+      // load animations into mixer
       this.mixer = new THREE.AnimationMixer(obj);
-      if (g.animations?.length) {
-        const action = this.mixer.clipAction(g.animations[0]);
-        action.play();
-      }
+
+      const climb = await this.loader.loadAsync(climbUrl);
+      this.actions['climb'] = this.mixer.clipAction(climb.animations[0], obj);
+      const idle = await this.loader.loadAsync(idleUrl);
+      this.actions['idle'] = this.mixer.clipAction(idle.animations[0], obj);
+      const look = await this.loader.loadAsync(lookUrl);
+      this.actions['look'] = this.mixer.clipAction(look.animations[0], obj);
+      const think = await this.loader.loadAsync(thinkUrl);
+      this.actions['think'] = this.mixer.clipAction(think.animations[0], obj);
+      const walk = await this.loader.loadAsync(walkUrl);
+      this.actions['walk'] = this.mixer.clipAction(walk.animations[0], obj);
+      const wave = await this.loader.loadAsync(waveUrl);
+      this.actions['wave'] = this.mixer.clipAction(wave.animations[0], obj);
+
+      this.playAnimation('idle');
     },
     undefined, 
     (error) => {
       console.error('Error loading character model:', error);
     }
-  );
+    );
   }
 
   _syncPlayerPhysics() {
@@ -326,7 +342,11 @@ export class ThreeScene {
         ArrowLeft: 'arrowleft', ArrowRight: 'arrowright',
       };
       const mapped = codeMap[e.code];
-      if (mapped) setKey(mapped, true);
+
+      if (mapped) {
+        setKey(mapped, true);
+        this.playAnimation('walk');
+      }
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
@@ -339,7 +359,10 @@ export class ThreeScene {
         ArrowLeft: 'arrowleft', ArrowRight: 'arrowright',
       };
       const mapped = codeMap[e.code];
-      if (mapped) setKey(mapped, false);
+      if (mapped) {
+        setKey(mapped, false);
+        this.playAnimation('idle');
+      }
     };
 
     // Subscribe to joystick input
@@ -463,6 +486,17 @@ export class ThreeScene {
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
+  }
+
+  playAnimation(name: string) {
+    if (!this.mixer || !this.character) return; // No mixer or character available
+
+    if (this.currentAction === this.actions[name]) { return; } // Already playing this action
+
+    this.currentAction?.fadeOut(0.2);
+
+    this.currentAction = this.actions[name] || null;
+    this.currentAction?.reset().play();
   }
 
   dispose() {
