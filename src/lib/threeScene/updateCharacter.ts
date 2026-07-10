@@ -216,6 +216,7 @@ export function updateCharacter(ctx: any, dt: number) {
   ctx.isBackingUp = false;
 
   ctx.isClimbing = ctx.playerBox.intersectsBox(ctx.ladderBox) || ctx.playerBox.intersectsBox(ctx.bedLadderBox);
+  ctx.climbYaw = undefined;
 
   if (ctx.jumpPressed) {
     if (ctx.isClimbing) {
@@ -232,6 +233,13 @@ export function updateCharacter(ctx: any, dt: number) {
 
   // ladder climbing logic
   if (ctx.isClimbing) {
+    if (ctx.climbYaw === undefined) {
+      // lock character rotation to camera direction when first entering ladder
+      ctx.climbYaw = ctx.character.rotation?.y ?? 0;
+    }
+
+    ctx.character.rotation.y = ctx.climbYaw; // keep facing ladder
+
     if (ctx.keys["w"]) {
       physics.climb(CLIMB_VELOCITY);
     } else if (ctx.keys["s"]) {
@@ -246,6 +254,7 @@ export function updateCharacter(ctx: any, dt: number) {
     }
   } else {
     physics.stopClimbing();
+    ctx.climbYaw = undefined;
   }
 
   physics.step(
@@ -263,7 +272,7 @@ export function updateCharacter(ctx: any, dt: number) {
   const [actualVx, actualVz] = physics.getHorizontalVelocity();
   const currentSpeed = Math.hypot(actualVx, actualVz);
 
-  if (currentSpeed > 1e-4 || hasMoveInput) {
+  if (!ctx.isClimbing && (currentSpeed > 1e-4 || hasMoveInput)) { // only update facing direction if moving or has input, not when climbing
     if (hasMoveInput) {
       _faceDir.copy(_moveDir);
       ctx.isBackingUp = inputForward < 0 && Math.abs(inputForward) >= Math.abs(inputTurn);
