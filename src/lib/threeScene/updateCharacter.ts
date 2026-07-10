@@ -17,6 +17,7 @@ const MAX_MOVE_DT = 0.025;
 const JUMP_VELOCITY = 3.5;
 const CLIMB_VELOCITY = 1.7;
 const SHIMMY_SPEED = 1.2;
+const CLIMB_TIMESCALE = 2.3;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _camForward = new THREE.Vector3();
@@ -82,7 +83,7 @@ function checkInteractableContact(ctx: {
 function updateAnimation(ctx: any, speed: number, isClimbing: boolean, isGrounded: boolean) {
   if (isClimbing) {
     if (ctx.currentAction?.getClip().name !== "climb") {
-      ctx.playAnimation("climb");
+      ctx.playAnimation("climb", CLIMB_TIMESCALE);
     }
   } else if (speed > 0.1) {
     if (ctx.currentAction?.getClip().name !== "walk") {

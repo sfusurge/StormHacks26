@@ -509,11 +509,14 @@ export class ThreeScene {
     requestAnimationFrame(tick);
   }
 
-  playAnimation(name: string) {
+  playAnimation(name: string, timeScale = 1) {
     const next = this.actions[name];
     if (!next) return;
 
-    if (this.currentAction === next) return; // Already playing this action
+    if (this.currentAction === next) {
+      next.setEffectiveTimeScale(timeScale); // allow updating speed even if already playing
+      return;
+    }
 
     this.currentAction?.fadeOut(0.4);
 
