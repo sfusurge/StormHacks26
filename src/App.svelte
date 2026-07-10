@@ -43,10 +43,6 @@
     showSpeech = false;
   }
 
-  function closePortalDialogueHandler() {
-    showPortalDialogue = false;
-  }
-
   onMount(() => {
     // Detect mobile
     isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
