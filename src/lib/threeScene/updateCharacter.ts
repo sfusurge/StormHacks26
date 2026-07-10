@@ -198,17 +198,24 @@ export function updateCharacter(ctx: any, dt: number) {
   const wasGrounded = physics.grounded;
   const inAir = !wasGrounded;
 
-  if (hasMoveInput) {
-    _moveDir.normalize();
-    const baseAccel = ctx.keys['shift'] ? RUN_ACCEL : MOVE_ACCEL;
-    const accel = baseAccel * (inAir ? 0.35 : 1);
-    const targetVx = _moveDir.x * moveSpeed;
-    const targetVz = _moveDir.z * moveSpeed;
-    const maxDelta = accel * moveDt;
-    vx = moveToward(vx, targetVx, maxDelta);
-    vz = moveToward(vz, targetVz, maxDelta);
-  } else if (wasGrounded) {
-    [vx, vz] = decelerate(vx, vz, MOVE_DECEL, moveDt);
+  if (!ctx.isClimbing) {
+    if (hasMoveInput) {
+      _moveDir.normalize();
+      const baseAccel = ctx.keys['shift'] ? RUN_ACCEL : MOVE_ACCEL;
+      const accel = baseAccel * (inAir ? 0.35 : 1);
+      const targetVx = _moveDir.x * moveSpeed;
+      const targetVz = _moveDir.z * moveSpeed;
+      const maxDelta = accel * moveDt;
+      vx = moveToward(vx, targetVx, maxDelta);
+      vz = moveToward(vz, targetVz, maxDelta);
+    } else if (wasGrounded) {
+      [vx, vz] = decelerate(vx, vz, MOVE_DECEL, moveDt);
+    }
+  }
+  else {
+    // freeze horizontal movement while climbing
+    vx = 0;
+    vz = 0;
   }
 
   physics.setHorizontalVelocity(vx, vz);
@@ -246,11 +253,6 @@ export function updateCharacter(ctx: any, dt: number) {
       physics.climb(-CLIMB_VELOCITY);
     } else {
       physics.climb(0); // freeze on ladder if no input
-    }
-
-    // stop sideways drift while not moving on ladder
-    if (ctx.isClimbing && inputForward === 0 && inputTurn === 0) {
-        physics.setHorizontalVelocity(0, 0);
     }
   } else {
     physics.stopClimbing();
