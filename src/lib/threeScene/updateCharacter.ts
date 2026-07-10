@@ -16,6 +16,7 @@ const ROT_BACKUP_RATE = 16;
 const MAX_MOVE_DT = 0.025;
 const JUMP_VELOCITY = 3.5;
 const CLIMB_VELOCITY = 1.7;
+const SHIMMY_SPEED = 1.2;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _camForward = new THREE.Vector3();
@@ -175,7 +176,7 @@ export function updateCharacter(ctx: any, dt: number) {
   const turning = Math.abs(inputTurn) > 1e-6;
   const diagonalMove = movingForward && turning;
 
-  if (turning && !diagonalMove) {
+  if (turning && !diagonalMove && !ctx.isClimbing) {
     const currentYaw = ctx.character.rotation?.y ?? 0;
     ctx.character.rotation.y = currentYaw + inputTurn * ROT_IN_PLACE_RATE * moveDt;
   }
@@ -213,9 +214,15 @@ export function updateCharacter(ctx: any, dt: number) {
     }
   }
   else {
-    // freeze horizontal movement while climbing
-    vx = 0;
-    vz = 0;
+    // shimmy left/right while climbing, relative to the locked ladder-facing yaw
+    const yaw = ctx.climbYaw ?? (ctx.character.rotation?.y ?? 0);
+    const rightX = Math.cos(yaw);
+    const rightZ = -Math.sin(yaw);
+    const targetVx = rightX * inputTurn * SHIMMY_SPEED;
+    const targetVz = rightZ * inputTurn * SHIMMY_SPEED;
+    const maxDelta = MOVE_ACCEL * moveDt;
+    vx = moveToward(vx, targetVx, maxDelta);
+    vz = moveToward(vz, targetVz, maxDelta);
   }
 
   physics.setHorizontalVelocity(vx, vz);
