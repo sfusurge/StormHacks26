@@ -89,7 +89,9 @@
 <style>
   .speech-box {
     position: relative;
-    width: 880px;
+    /* width: 320px; */
+    width: calc(100vw - 100px);
+    max-width: 880px;
     /*background: white;
     border: 2px solid black;
     border-radius: 12px;
