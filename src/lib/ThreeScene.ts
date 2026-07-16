@@ -41,12 +41,12 @@ export class ThreeScene {
 
   cameraYaw = 0;
   cameraPitch = 0;
-  cameraDistance = 1.0;
+  cameraDistance = 1.25;
   minCameraDistance = 0.9;
   maxCameraDistance = 1.8;
   characterMargin = 0.35;
   cameraMargin = 0.5;
-  cameraVerticalMargin = 0.1;
+  cameraVerticalMargin = 1;
   jumpPressed = false;
   isPointerDown = false;
   isBackingUp = false;
