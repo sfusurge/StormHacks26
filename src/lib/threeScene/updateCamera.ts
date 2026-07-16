@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
-const CAMERA_POSITION_LERP = 0.06;
-const CAMERA_YAW_FOLLOW = 0.08;
+const CAMERA_POSITION_LERP = 0.15;
+const CAMERA_YAW_FOLLOW = 0.05;
 const CAMERA_LOOK_LERP = 0.04;
 const CAMERA_COLLISION_LERP = 0.1;
 

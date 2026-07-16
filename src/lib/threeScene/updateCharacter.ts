@@ -87,7 +87,7 @@ function updateAnimation(ctx: any, speed: number, isClimbing: boolean, isGrounde
     }
   } else if (speed > 0.1) {
     if (ctx.currentAction?.getClip().name !== "walk") {
-      ctx.playAnimation("walk");
+      ctx.playAnimation("walk", 1.5 * (speed / MOVE_SPEED));
     }
   } else {
     if (ctx.currentAction?.getClip().name !== "idle") {
