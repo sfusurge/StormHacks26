@@ -6,9 +6,11 @@ import type { PlayerPhysics } from './playerPhysics';
 
 const MOVE_SPEED = 2.0;
 const RUN_SPEED = 3.6;
-const MOVE_ACCEL = 10;
-const RUN_ACCEL = 14;
-const MOVE_DECEL = 12;
+const GROUND_ACCEL_RATE = 10.0;
+const RUN_ACCEL_RATE = 13.0;
+const AIR_ACCEL_RATE = 3.5;
+const GROUND_DRAG = 9.0;
+const AIR_DRAG = 1.8;
 const ROT_TURN_RATE = 12;
 const ROT_DIAGONAL_TURN_RATE = 18;
 const ROT_IN_PLACE_RATE = 2;
@@ -105,19 +107,7 @@ function updateAnimation(ctx: any, speed: number, isClimbing: boolean, isGrounde
   }
 }
 
-function moveToward(current: number, target: number, maxDelta: number): number {
-  if (Math.abs(target - current) <= maxDelta) return target;
-  return current + Math.sign(target - current) * maxDelta;
-}
 
-function decelerate(vx: number, vz: number, decel: number, dt: number): [number, number] {
-  const speed = Math.hypot(vx, vz);
-  if (speed < 1e-6) return [0, 0];
-
-  const newSpeed = Math.max(0, speed - decel * dt);
-  const scale = newSpeed / speed;
-  return [vx * scale, vz * scale];
-}
 
 export function updateCharacter(ctx: any, dt: number) {
   if (!ctx.character || !ctx.roomLoaded || !ctx.roomBox || !ctx.playerPhysics) return;
@@ -196,19 +186,26 @@ export function updateCharacter(ctx: any, dt: number) {
   let [vx, vz] = physics.getHorizontalVelocity();
 
   const wasGrounded = physics.grounded;
-  const inAir = !wasGrounded;
 
+  // Horizontal movement (exponential acceleration / decay)
   if (hasMoveInput) {
     _moveDir.normalize();
-    const baseAccel = ctx.keys['shift'] ? RUN_ACCEL : MOVE_ACCEL;
-    const accel = baseAccel * (inAir ? 0.35 : 1);
+    const accelRate = wasGrounded 
+      ? (ctx.keys['shift'] ? RUN_ACCEL_RATE : GROUND_ACCEL_RATE)
+      : AIR_ACCEL_RATE;
     const targetVx = _moveDir.x * moveSpeed;
     const targetVz = _moveDir.z * moveSpeed;
-    const maxDelta = accel * moveDt;
-    vx = moveToward(vx, targetVx, maxDelta);
-    vz = moveToward(vz, targetVz, maxDelta);
-  } else if (wasGrounded) {
-    [vx, vz] = decelerate(vx, vz, MOVE_DECEL, moveDt);
+    vx += (targetVx - vx) * (1 - Math.exp(-accelRate * moveDt));
+    vz += (targetVz - vz) * (1 - Math.exp(-accelRate * moveDt));
+  } else {
+    const drag = wasGrounded ? GROUND_DRAG : AIR_DRAG;
+    vx += (0 - vx) * (1 - Math.exp(-drag * moveDt));
+    vz += (0 - vz) * (1 - Math.exp(-drag * moveDt));
+    
+    if (Math.hypot(vx, vz) < 0.05) {
+      vx = 0;
+      vz = 0;
+    }
   }
 
   physics.setHorizontalVelocity(vx, vz);
@@ -217,17 +214,32 @@ export function updateCharacter(ctx: any, dt: number) {
 
   ctx.isClimbing = ctx.playerBox.intersectsBox(ctx.ladderBox) || ctx.playerBox.intersectsBox(ctx.bedLadderBox);
 
+  // Jump buffering & coyote time updates
   if (ctx.jumpPressed) {
+    physics.jumpBufferTimer = 0.15; // 150ms buffer window
+    ctx.jumpPressed = false;
+  } else {
+    physics.jumpBufferTimer = Math.max(0, physics.jumpBufferTimer - moveDt);
+  }
+
+  const isCurrentlyGrounded = physics.isGrounded(queryFloor, footOffset);
+  if (isCurrentlyGrounded) {
+    physics.coyoteTimer = 0.15; // 150ms coyote time window
+  } else {
+    physics.coyoteTimer = Math.max(0, physics.coyoteTimer - moveDt);
+  }
+
+  if (physics.jumpBufferTimer > 0) {
     if (ctx.isClimbing) {
-      // jump off lader
       physics.stopClimbing();
       ctx.isClimbing = false;
       physics.jump(JUMP_VELOCITY);
-    } else if (physics.isGrounded(queryFloor, footOffset)) {
-      // normal jump from ground
+      physics.jumpBufferTimer = 0;
+    } else if (physics.coyoteTimer > 0) {
       physics.jump(JUMP_VELOCITY);
+      physics.jumpBufferTimer = 0;
+      physics.coyoteTimer = 0;
     }
-    ctx.jumpPressed = false;
   }
 
   // ladder climbing logic

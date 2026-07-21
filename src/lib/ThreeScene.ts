@@ -66,7 +66,7 @@ export class ThreeScene {
     this.canvas = canvas;
     this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     const powerPref = this.isMobile ? 'low-power' : 'high-performance';
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: powerPref, precision: this.isMobile ? 'lowp' : 'highp' });
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: powerPref, precision: this.isMobile ? 'lowp' : 'highp' });
     this.renderer.setPixelRatio(this.isMobile ? 1 : Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = false;
