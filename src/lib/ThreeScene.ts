@@ -35,6 +35,7 @@ export class ThreeScene {
   ladderBox: THREE.Box3 | null = null;
   bedLadderBox: THREE.Box3 | null = null;
   playerBox: THREE.Box3 | null = null;
+  dt = 0;
 
   collidableMeshes: THREE.Mesh[] = [];
   cameraCollisionMesh: THREE.Mesh | null = null;
@@ -509,6 +510,7 @@ export class ThreeScene {
     const tick = () => {
       if (this.disposed) return;
       const dt = clock.getDelta();
+      this.dt = dt;
 
       // update model animation
       if (this.mixer) {

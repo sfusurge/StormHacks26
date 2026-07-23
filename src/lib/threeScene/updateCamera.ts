@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 
 const CAMERA_POSITION_LERP = 0.06;
-const CAMERA_YAW_FOLLOW = 0.08;
+const CAMERA_YAW_SPEED_STATIONARY = 10.0;
+const CAMERA_YAW_SPEED_MOVING = 1.7;
 const CAMERA_LOOK_LERP = 0.04;
 const CAMERA_COLLISION_LERP = 0.1;
 
@@ -35,7 +36,18 @@ export function updateCamera(ctx: any) {
       forward.normalize();
       const followYaw = Math.atan2(forward.x, forward.z);
       const yawDiff = (followYaw - ctx.cameraYaw + Math.PI) % (Math.PI * 2) - Math.PI;
-      ctx.cameraYaw += yawDiff * CAMERA_YAW_FOLLOW;
+
+      const CAMERA_YAW_SPEED =
+          ctx.currentSpeed > 0.2
+              ? CAMERA_YAW_SPEED_MOVING
+              : CAMERA_YAW_SPEED_STATIONARY;
+      const maxStep = CAMERA_YAW_SPEED * ctx.dt;
+
+      ctx.cameraYaw += THREE.MathUtils.clamp(
+        yawDiff,
+        -maxStep,
+        maxStep
+      );
     }
 
     // Orbit at the smoothed camera yaw so turning does not swing collision rays inward.

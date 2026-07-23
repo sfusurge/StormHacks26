@@ -281,6 +281,8 @@ export function updateCharacter(ctx: any, dt: number) {
 
   const [actualVx, actualVz] = physics.getHorizontalVelocity();
   const currentSpeed = Math.hypot(actualVx, actualVz);
+  // save current speed into context for camera yaw smoothing
+  ctx.currentSpeed = currentSpeed;
 
   if (!ctx.isClimbing && (currentSpeed > 1e-4 || hasMoveInput)) { // only update facing direction if moving or has input, not when climbing
     if (hasMoveInput) {
