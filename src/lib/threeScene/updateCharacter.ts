@@ -5,18 +5,18 @@ import { getCollisionBvh } from './characterCollision';
 import type { PlayerPhysics } from './playerPhysics';
 
 const MOVE_SPEED = 2.0;
-const RUN_SPEED = 3.6;
+const RUN_SPEED = 3.0;
 const MOVE_ACCEL = 10;
-const RUN_ACCEL = 14;
-const MOVE_DECEL = 12;
+const RUN_ACCEL = 10;
+const MOVE_DECEL = 7;
 const ROT_TURN_RATE = 12;
-const ROT_DIAGONAL_TURN_RATE = 18;
-const ROT_IN_PLACE_RATE = 2;
+const ROT_DIAGONAL_TURN_RATE = 10;
+const ROT_IN_PLACE_RATE = 1.92;
 const ROT_BACKUP_RATE = 16;
 const MAX_MOVE_DT = 0.025;
 const JUMP_VELOCITY = 3.5;
-const CLIMB_VELOCITY = 1.7;
-const SHIMMY_SPEED = 1.2;
+const CLIMB_VELOCITY = 1.6;
+const SHIMMY_SPEED = 0.9;
 const CLIMB_TIMESCALE = 2.3;
 
 const _up = new THREE.Vector3(0, 1, 0);
@@ -87,7 +87,7 @@ function updateAnimation(ctx: any, speed: number, isClimbing: boolean, isGrounde
     }
   } else if (speed > 0.1) {
     if (ctx.currentAction?.getClip().name !== "walk") {
-      ctx.playAnimation("walk", 1.5 * (speed / MOVE_SPEED));
+      ctx.playAnimation("walk", 1.4 * (speed / MOVE_SPEED));
     }
   } else {
     if (ctx.currentAction?.getClip().name !== "idle") {

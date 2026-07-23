@@ -38,7 +38,7 @@ export function updateCamera(ctx: any) {
       const yawDiff = (followYaw - ctx.cameraYaw + Math.PI) % (Math.PI * 2) - Math.PI;
 
       const CAMERA_YAW_SPEED =
-          ctx.currentSpeed > 0.2
+          ctx.currentSpeed > 0.1
               ? CAMERA_YAW_SPEED_MOVING
               : CAMERA_YAW_SPEED_STATIONARY;
       const maxStep = CAMERA_YAW_SPEED * ctx.dt;
