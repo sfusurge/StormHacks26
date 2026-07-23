@@ -9,8 +9,6 @@ const RUN_SPEED = 3.0;
 const MOVE_ACCEL = 10;
 const RUN_ACCEL = 10;
 const MOVE_DECEL = 7;
-const ROT_TURN_RATE = 12;
-const ROT_DIAGONAL_TURN_RATE = 10;
 const ROT_IN_PLACE_RATE = 1.92;
 const ROT_BACKUP_RATE = 16;
 const MAX_MOVE_DT = 0.025;
@@ -295,11 +293,14 @@ export function updateCharacter(ctx: any, dt: number) {
     const targetYaw = Math.atan2(_faceDir.x, _faceDir.z);
     const currentYaw = ctx.character.rotation?.y ?? 0;
     const yawDelta = (targetYaw - currentYaw + Math.PI) % (Math.PI * 2) - Math.PI;
+    const normalTurn = THREE.MathUtils.lerp(12, 20,  ctx.currentSpeed / RUN_SPEED);
+    const diagonalTurn = THREE.MathUtils.lerp(18, 28,  ctx.currentSpeed / RUN_SPEED);
+
     const turnRate = ctx.isBackingUp
       ? ROT_BACKUP_RATE
       : diagonalMove
-        ? ROT_DIAGONAL_TURN_RATE
-        : ROT_TURN_RATE;
+        ? diagonalTurn
+        : normalTurn;
     const turnBlend = 1 - Math.exp(-turnRate * moveDt);
     ctx.character.rotation.y = currentYaw + yawDelta * turnBlend;
   }
