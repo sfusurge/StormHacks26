@@ -59,8 +59,10 @@ export class ThreeScene {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const powerPref = isMobile ? 'low-power' : 'high-performance';
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: powerPref, precision: isMobile ? 'lowp' : 'highp' });
+    this.renderer.setPixelRatio(isMobile ? 1 : Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = false;
 
@@ -218,21 +220,36 @@ export class ThreeScene {
       this._snapToFloor();
       this._syncPlayerPhysics();
 
-      // load animations into mixer
+      // load animations into mixer with staggered loading to prevent mobile crashes
       this.mixer = new THREE.AnimationMixer(obj);
 
-      const climb = await this.loader.loadAsync(climbUrl);
-      this.actions['climb'] = this.mixer.clipAction(climb.animations[0], obj);
-      const idle = await this.loader.loadAsync(idleUrl);
-      this.actions['idle'] = this.mixer.clipAction(idle.animations[0], obj);
-      const look = await this.loader.loadAsync(lookUrl);
-      this.actions['look'] = this.mixer.clipAction(look.animations[0], obj);
-      const think = await this.loader.loadAsync(thinkUrl);
-      this.actions['think'] = this.mixer.clipAction(think.animations[0], obj);
-      const walk = await this.loader.loadAsync(walkUrl);
-      this.actions['walk'] = this.mixer.clipAction(walk.animations[0], obj);
-      const wave = await this.loader.loadAsync(waveUrl);
-      this.actions['wave'] = this.mixer.clipAction(wave.animations[0], obj);
+      // Stagger animation loading to prevent shader compilation spike on mobile
+      const animationUrls = [
+        { name: 'idle', url: idleUrl },
+        { name: 'walk', url: walkUrl },
+        { name: 'climb', url: climbUrl },
+        { name: 'look', url: lookUrl },
+        { name: 'think', url: thinkUrl },
+        { name: 'wave', url: waveUrl }
+      ];
+
+      let loadedCount = 0;
+      for (const { name, url } of animationUrls) {
+        await new Promise(resolve => {
+          setTimeout(async () => {
+            try {
+              const anim = await this.loader.loadAsync(url);
+              if (anim.animations?.length) {
+                this.actions[name] = this.mixer!.clipAction(anim.animations[0], obj);
+              }
+            } catch (error) {
+              console.warn(`Failed to load animation ${name}:`, error);
+            }
+            loadedCount++;
+            resolve(null);
+          }, loadedCount * 50); // 50ms delay between each animation load
+        });
+      }
 
       this.playAnimation('idle');
     },
@@ -536,6 +553,20 @@ export class ThreeScene {
     this.playerPhysics?.dispose();
     this.playerPhysics = null;
     this.joystickUnsubscribe?.();
+    
+    // Aggressive cleanup for mobile
+    this.scene.traverse((object) => {
+      if ((object as THREE.Mesh).isMesh) {
+        const mesh = object as THREE.Mesh;
+        mesh.geometry?.dispose();
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach(m => m.dispose());
+        } else {
+          mesh.material?.dispose();
+        }
+      }
+    });
+    
     this.renderer.dispose();
     (this.canvas as any).remove();
   }
