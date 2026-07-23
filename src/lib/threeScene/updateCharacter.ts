@@ -12,7 +12,7 @@ const MOVE_DECEL = 7;
 const ROT_IN_PLACE_RATE = 1.92;
 const ROT_BACKUP_RATE = 16;
 const MAX_MOVE_DT = 0.025;
-const JUMP_VELOCITY = 3.5;
+const JUMP_VELOCITY = 3.05;
 const CLIMB_VELOCITY = 1.6;
 const SHIMMY_SPEED = 0.9;
 const CLIMB_TIMESCALE = 2.3;
@@ -239,7 +239,13 @@ export function updateCharacter(ctx: any, dt: number) {
       physics.jump(JUMP_VELOCITY);
     } else if (physics.isGrounded(queryFloor, footOffset)) {
       // normal jump from ground
-      physics.jump(JUMP_VELOCITY);
+      const jumpVelocity =
+      THREE.MathUtils.lerp(
+          JUMP_VELOCITY,
+          JUMP_VELOCITY * 1.25,
+          ctx.currentSpeed / RUN_SPEED // jump boost if moving fast
+      );
+      physics.jump(jumpVelocity);
     }
     ctx.jumpPressed = false;
   }
