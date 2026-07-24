@@ -3,6 +3,7 @@ import * as THREE from 'three';
 const CAMERA_POSITION_LERP = 0.06;
 const CAMERA_LOOK_LERP = 0.04;
 const CAMERA_COLLISION_LERP = 0.1;
+const CAMERA_RETURN_SPEED = 0.4;
 
 export function updateCamera(ctx: any) {
 // target is the character head position (used as camera focus)
@@ -15,6 +16,7 @@ export function updateCamera(ctx: any) {
 
   ctx.cameraYawVelocity ??= 0;
   ctx.cameraYaw ??= 0;
+  ctx.desiredCameraYaw ??= ctx.cameraYaw;
 
 // orbit mode: compute spherical offset from yaw/pitch when dragging
   if (ctx.isPointerDown) {
@@ -30,15 +32,16 @@ export function updateCamera(ctx: any) {
   } else if (ctx.isClimbing) {
     // always keep camera behind character while climbing
     const followYaw = ctx.character.rotation.y;
+    ctx.desiredCameraYaw = followYaw;
 
-    const yawDiff =
+    const cameraDiff =
       THREE.MathUtils.euclideanModulo(
-        followYaw - ctx.cameraYaw + Math.PI,
+        ctx.desiredCameraYaw - ctx.cameraYaw + Math.PI,
         Math.PI * 2
       ) - Math.PI;
 
     const angle = THREE.MathUtils.smoothstep(
-      Math.abs(yawDiff),
+      Math.abs(cameraDiff),
       0,
       Math.PI
     );
@@ -55,10 +58,8 @@ export function updateCamera(ctx: any) {
       angle
     );
 
-    const accel = stiffness * yawDiff - damping * ctx.cameraYawVelocity;
-
+    const accel = stiffness * cameraDiff - damping * ctx.cameraYawVelocity;
     ctx.cameraYawVelocity += accel * ctx.dt;
-
     ctx.cameraYaw += ctx.cameraYawVelocity * ctx.dt;
 
     desired.set(
@@ -82,14 +83,24 @@ export function updateCamera(ctx: any) {
     const followYaw = Math.atan2(forward.x, forward.z);
 
     if (!ctx.isBackingUp) {
-      const yawDiff =
+      const desiredDiff =
         THREE.MathUtils.euclideanModulo(
-          followYaw - ctx.cameraYaw + Math.PI,
+          followYaw - ctx.desiredCameraYaw + Math.PI,
+          Math.PI * 2
+        ) - Math.PI;
+
+      // move target slowly toward the character's forward direction so camera doesn't swing too far inward
+      ctx.desiredCameraYaw += desiredDiff * (1 - Math.exp(-CAMERA_RETURN_SPEED * ctx.dt));
+
+      // spring toward desired yaw
+      const cameraDiff = 
+        THREE.MathUtils.euclideanModulo(
+          ctx.desiredCameraYaw - ctx.cameraYaw + Math.PI,
           Math.PI * 2
         ) - Math.PI;
 
       const angle = THREE.MathUtils.smoothstep(
-        Math.abs(yawDiff),
+        Math.abs(cameraDiff),
         0,
         Math.PI
       );
@@ -106,17 +117,15 @@ export function updateCamera(ctx: any) {
         angle
       );
 
-      const accel = stiffness * yawDiff - damping * ctx.cameraYawVelocity;
-
+      const accel = stiffness * cameraDiff - damping * ctx.cameraYawVelocity;
       ctx.cameraYawVelocity += accel * ctx.dt;
-
       ctx.cameraYaw += ctx.cameraYawVelocity * ctx.dt;
   } else {
     // make velocity slower when backing up so camera doesn't swing too far inward
-    ctx.cameraYawVelocity *= 0.01;
+    ctx.cameraYawVelocity = 0;
   }
 
-    // Orbit at the smoothed camera yaw so turning does not swing collision rays inward.
+    // orbit at the smoothed camera yaw so turning does not swing collision rays inward
     desired.set(
       target.x - Math.sin(ctx.cameraYaw) * followDist,
       target.y + Math.max(0.1, followDist * 0.12),
