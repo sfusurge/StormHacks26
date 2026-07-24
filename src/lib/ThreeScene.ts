@@ -51,6 +51,8 @@ export class ThreeScene {
   jumpPressed = false;
   isPointerDown = false;
   isBackingUp = false;
+  wasBackingUp = false;
+  isRotatingAfterBackup = false;
   isGrounded = true;
   playerPhysics: PlayerPhysics | null = null;
   room: THREE.Object3D | null = null;

@@ -226,6 +226,7 @@ export function updateCharacter(ctx: any, dt: number) {
 
   physics.setHorizontalVelocity(vx, vz);
 
+  ctx.wasBackingUp = ctx.isBackingUp;
   ctx.isBackingUp = false;
 
   ctx.isClimbing = ctx.playerBox.intersectsBox(ctx.ladderBox) || ctx.playerBox.intersectsBox(ctx.bedLadderBox);

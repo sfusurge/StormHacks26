@@ -3,6 +3,7 @@ import * as THREE from 'three';
 const CAMERA_POSITION_LERP = 0.06;
 const CAMERA_YAW_SPEED_STATIONARY = 10.0;
 const CAMERA_YAW_SPEED_MOVING = 1.7;
+const CAMERA_YAW_SPEED_RECOVER = 0.2;
 const CAMERA_LOOK_LERP = 0.04;
 const CAMERA_COLLISION_LERP = 0.1;
 
@@ -26,22 +27,60 @@ export function updateCamera(ctx: any) {
       followDist * cosP * Math.cos(yaw)
     );
     desired.copy(target).add(offset);
-// third-person follow: position camera behind character based on facing
+// third-person follow: position camera behind character except when backing up, then orbit at smoothed yaw
   } else {
-    if (!ctx.isBackingUp) {
-      const forward = new THREE.Vector3();
-      ctx.character.getWorldDirection(forward);
-      forward.y = 0;
-      if (forward.lengthSq() < 1e-6) forward.set(0, 0, 1);
-      forward.normalize();
-      const followYaw = Math.atan2(forward.x, forward.z);
-      const yawDiff = (followYaw - ctx.cameraYaw + Math.PI) % (Math.PI * 2) - Math.PI;
+    // compute the direction the camera should eventually face
+    const forward = new THREE.Vector3();
+    ctx.character.getWorldDirection(forward);
+    forward.y = 0;
 
-      const CAMERA_YAW_SPEED =
-          ctx.currentSpeed > 0.1
-              ? CAMERA_YAW_SPEED_MOVING
-              : CAMERA_YAW_SPEED_STATIONARY;
-      const maxStep = CAMERA_YAW_SPEED * ctx.dt;
+    if (forward.lengthSq() < 1e-6) {
+      forward.set(0, 0, 1);
+    }
+
+    forward.normalize();
+
+    const followYaw = Math.atan2(forward.x, forward.z);
+
+    if (ctx.wasBackingUp && !ctx.isBackingUp) {
+      ctx.isRotatingAfterBackup = true;
+    }
+
+    ctx.wasBackingUp = ctx.isBackingUp;
+
+    const yawDiff =
+      THREE.MathUtils.euclideanModulo(
+          followYaw - ctx.cameraYaw + Math.PI,
+          Math.PI * 2
+      ) - Math.PI;
+    const rotateDiff = (followYaw - ctx.cameraYaw + Math.PI) % (Math.PI * 2) - Math.PI;
+
+    // if we're rotating after backup and the camera is close enough to the target, stop rotating
+    if (ctx.isRotatingAfterBackup && Math.abs(rotateDiff) < 0.2) {
+      ctx.isRotatingAfterBackup = false;
+    }
+
+    if (ctx.isBackingUp) {
+      // freeze while walking backwards
+    } else if (ctx.isRotatingAfterBackup) {
+      // slowly move camera back to default position
+      const maxStep = CAMERA_YAW_SPEED_RECOVER * ctx.dt;
+
+      if (Math.abs(yawDiff) <= maxStep) {
+        ctx.cameraYaw = followYaw;
+        ctx.isRotatingAfterBackup = false;
+      } else {
+        ctx.cameraYaw += Math.sign(yawDiff) * maxStep;
+      }
+
+    } else {
+      // normal camera follow
+      const cameraYawSpeed =
+        ctx.currentSpeed > 0.1
+          ? CAMERA_YAW_SPEED_MOVING
+          : CAMERA_YAW_SPEED_STATIONARY;
+
+      const maxStep = cameraYawSpeed * ctx.dt;
 
       ctx.cameraYaw += THREE.MathUtils.clamp(
         yawDiff,
