@@ -6,6 +6,8 @@ const CAMERA_YAW_SPEED_MOVING = 1.7;
 const CAMERA_YAW_SPEED_RECOVER = 0.2;
 const CAMERA_LOOK_LERP = 0.04;
 const CAMERA_COLLISION_LERP = 0.1;
+const CAMERA_RECOVERY_TIME = 5;
+const CAMERA_YAW_SPEED_CLIMB = 3;
 
 export function updateCamera(ctx: any) {
 // target is the character head position (used as camera focus)
@@ -27,6 +29,29 @@ export function updateCamera(ctx: any) {
       followDist * cosP * Math.cos(yaw)
     );
     desired.copy(target).add(offset);
+  } else if (ctx.isClimbing) {
+    // always keep camera behind character while climbing
+    const followYaw = ctx.character.rotation.y;
+
+    const yawDiff =
+        THREE.MathUtils.euclideanModulo(
+            followYaw - ctx.cameraYaw + Math.PI,
+            Math.PI * 2
+        ) - Math.PI;
+
+    const maxStep = CAMERA_YAW_SPEED_CLIMB * ctx.dt;
+
+    ctx.cameraYaw += THREE.MathUtils.clamp(
+        yawDiff,
+        -maxStep,
+        maxStep
+    );
+
+    desired.set(
+        target.x - Math.sin(ctx.cameraYaw) * followDist,
+        target.y + Math.max(0.1, followDist * 0.12),
+        target.z - Math.cos(ctx.cameraYaw) * followDist
+    );
 // third-person follow: position camera behind character except when backing up, then orbit at smoothed yaw
   } else {
     // compute the direction the camera should eventually face
@@ -43,7 +68,7 @@ export function updateCamera(ctx: any) {
     const followYaw = Math.atan2(forward.x, forward.z);
 
     if (ctx.wasBackingUp && !ctx.isBackingUp) {
-      ctx.recoveryTime = 4;
+      ctx.recoveryTime = CAMERA_RECOVERY_TIME;
     }
 
     ctx.wasBackingUp = ctx.isBackingUp;
