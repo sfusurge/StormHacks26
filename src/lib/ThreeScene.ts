@@ -5,9 +5,10 @@ import { alignCharacterToFloor, clampCharacterToRoom, getFootOffset, snapCharact
 import { updateCharacter as updateCharacterInternal } from './threeScene/updateCharacter';
 import { updateCamera as updateCameraInternal } from './threeScene/updateCamera';
 import { buildCollisionFromRoom } from './threeScene/buildCollisionFromRoom';
-import { createCameraCollisionMesh, normalizeRoomObject } from './threeScene/collisionMap';
+import { createCameraCollisionMesh, normalizeRoomObject, createSimplifiedCollisionMesh } from './threeScene/collisionMap';
 import { mergeRoomMeshesByMaterial, bakeAnimatedMeshesForMergedSpace } from './threeScene/mergeRoomMeshes';
 import { initPortalFlipbookVisibility, resetPortalFlipbookCache, syncPortalFlipbookFromTime } from './threeScene/portalFlipbook';
+import { createRoomLOD, createMobileLOD, CollisionLODManager } from './threeScene/lodSystem';
 import { findSpawnFloorY } from './threeScene/floorQuery';
 import { PlayerPhysics } from './threeScene/playerPhysics';
 import { writable } from 'svelte/store';
@@ -56,16 +57,20 @@ export class ThreeScene {
   isGrounded = true;
   playerPhysics: PlayerPhysics | null = null;
   room: THREE.Object3D | null = null;
+  roomLOD: THREE.LOD | null = null;
+  collisionLODManager: CollisionLODManager | null = null;
+  collisionData: any = null;
   portalFlipbookTime = 0;
   joystickUnsubscribe: (() => void) | null = null;
   joystickInput = { x: 0, y: 0 };
+  isMobile = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const powerPref = isMobile ? 'low-power' : 'high-performance';
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: powerPref, precision: isMobile ? 'lowp' : 'highp' });
-    this.renderer.setPixelRatio(isMobile ? 1 : Math.min(window.devicePixelRatio, 2));
+    this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const powerPref = this.isMobile ? 'low-power' : 'high-performance';
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: powerPref, precision: this.isMobile ? 'lowp' : 'highp' });
+    this.renderer.setPixelRatio(this.isMobile ? 1 : Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = false;
 
@@ -112,12 +117,8 @@ export class ThreeScene {
           const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
           this.room = obj;
           this.roomBox = normalizeRoomObject(obj);
-          this.scene.add(obj);
-          this._alignCharacterToFloor();
-          this._positionInteractable();
 
-          window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 80, stage: 'Optimizing meshes...' } }));
-
+          // Identify animated nodes before LOD creation
           const animatedNodeNames = new Set<string>();
           if (g.animations?.length) {
             for (const clip of g.animations) {
@@ -155,24 +156,24 @@ export class ThreeScene {
           );
           this.playerBox = new THREE.Box3();
 
-          // SHOW BOUNDING BOXES FOR DEBUGGING
-          // const helper = new THREE.Box3Helper(this.ladderBox, 0xff7034);
-          // helper.material.depthTest = false;
-          // helper.renderOrder = 999;
-          // this.scene.add(helper);
+          window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 75, stage: 'Creating detail levels...' } }));
 
-          // const bedLadderHelper = new THREE.Box3Helper(this.bedLadderBox, 0xff7034);
-          // bedLadderHelper.material.depthTest = false;
-          // bedLadderHelper.renderOrder = 999;
-          // this.scene.add(bedLadderHelper);
+          // Create LOD system instead of single merged mesh
+          if (this.isMobile) {
+            this.roomLOD = createMobileLOD(obj, animatedNodeNames);
+          } else {
+            this.roomLOD = createRoomLOD(obj, animatedNodeNames);
+          }
+          
+          this.scene.add(this.roomLOD);
+          this._alignCharacterToFloor();
+          this._positionInteractable();
 
-          // const playerHelper = new THREE.Box3Helper(this.playerBox, 0x00ff00);
-          // this.scene.add(playerHelper);
-
-          mergeRoomMeshesByMaterial(obj, (node) => animatedNodeNames.has(node.name));
-
+          window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 85, stage: 'Optimizing collision...' } }));
           this._syncPlayerToFloor();
-          void this._initCollision(obj);
+          // Build collision from the high-detail merged mesh (not original geometry)
+          const highDetailMesh = (this.roomLOD as any).highDetailMesh || obj;
+          void this._initCollision(highDetailMesh);
         },
         (progress) => {
           const percent = (progress.loaded / progress.total) * 70;
@@ -245,6 +246,28 @@ export class ThreeScene {
               if (anim.animations?.length) {
                 this.actions[name] = this.mixer!.clipAction(anim.animations[0], obj);
               }
+              // Dispose of unused duplicate geometries/textures to avoid memory leaks
+              if (anim.scene) {
+                anim.scene.traverse((node: any) => {
+                  if (node.isMesh) {
+                    node.geometry?.dispose();
+                    if (Array.isArray(node.material)) {
+                      node.material.forEach((mat) => {
+                        for (const key in mat) {
+                          if (mat[key] && mat[key].isTexture) mat[key].dispose();
+                        }
+                        mat.dispose();
+                      });
+                    } else if (node.material) {
+                      const mat = node.material;
+                      for (const key in mat) {
+                        if (mat[key] && mat[key].isTexture) mat[key].dispose();
+                      }
+                      mat.dispose();
+                    }
+                  }
+                });
+              }
             } catch (error) {
               console.warn(`Failed to load animation ${name}:`, error);
             }
@@ -314,13 +337,37 @@ export class ThreeScene {
       window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 90, stage: 'Building collision mesh...' } }));
       const collisionData = buildCollisionFromRoom(room);
       this.collisionBounds = collisionData.bounds;
+      this.collisionData = collisionData;
 
-      this.cameraCollisionMesh = await createCameraCollisionMesh(collisionData, (p) => {
-        const progress = 90 + Math.round(p * 8);
-        window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress, stage: 'Building collision tree...' } }));
+      // Create collision LOD manager
+      this.collisionLODManager = new CollisionLODManager(this.scene);
+
+      // Full detail collision (always accurate near camera)
+      const fullDetailMesh = await createCameraCollisionMesh(collisionData, (p) => {
+        const progress = 90 + Math.round(p * 2);
+        window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress, stage: 'Building collision tree (full)...' } }));
       });
-      this.scene.add(this.cameraCollisionMesh);
-      this.collidableMeshes = [this.cameraCollisionMesh];
+      this.collisionLODManager.addLevel(fullDetailMesh, 0);
+
+      // Medium detail collision (mid distance) - 60% polygons
+      window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 92, stage: 'Building collision tree (medium)...' } }));
+      const mediumDetailMesh = await createSimplifiedCollisionMesh(collisionData, 0.6, (p) => {
+        const progress = 92 + Math.round(p * 3);
+        window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress, stage: 'Building collision tree (medium)...' } }));
+      });
+      this.collisionLODManager.addLevel(mediumDetailMesh, this.isMobile ? 4 : 15);
+
+      // Low detail collision (far distance) - 25% polygons  
+      window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 95, stage: 'Building collision tree (low)...' } }));
+      const lowDetailMesh = await createSimplifiedCollisionMesh(collisionData, 0.25, (p) => {
+        const progress = 95 + Math.round(p * 4);
+        window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress, stage: 'Building collision tree (low)...' } }));
+      });
+      this.collisionLODManager.addLevel(lowDetailMesh, this.isMobile ? 8 : 30);
+
+      // Use full detail collision as current (gets updated each frame based on camera distance)
+      this.cameraCollisionMesh = this.collisionLODManager.getCurrentMesh();
+      this.collidableMeshes = [this.cameraCollisionMesh!];
 
       this.playerPhysics = new PlayerPhysics();
 
@@ -330,7 +377,8 @@ export class ThreeScene {
       this.roomLoaded = true;
       window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 100, stage: 'Complete!' } }));
       this.isLoading.set(false);
-    } catch {
+    } catch (e) {
+      console.error('Collision init error:', e);
       this.roomLoaded = true;
       this.isLoading.set(false);
     }
@@ -520,10 +568,26 @@ export class ThreeScene {
       }
 
       this.portalFlipbookTime += dt;
-      syncPortalFlipbookFromTime(this.room, this.portalFlipbookTime);
+      syncPortalFlipbookFromTime(this.roomLOD || this.room, this.portalFlipbookTime);
       this.updateCharacter(dt);
       this.updateSpeechTriggers();
       this.updateCamera();
+      
+      // Update LOD distances based on camera position
+      if (this.roomLOD) {
+        this.roomLOD.update(this.camera);
+      }
+
+      // Update collision LOD based on camera distance to room
+      if (this.collisionLODManager && this.room) {
+        this.collisionLODManager.update(this.camera.position, this.room.position);
+        const currentMesh = this.collisionLODManager.getCurrentMesh();
+        if (currentMesh && currentMesh !== this.cameraCollisionMesh) {
+          this.cameraCollisionMesh = currentMesh;
+          this.collidableMeshes = [currentMesh];
+        }
+      }
+      
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(tick);
     };
@@ -557,6 +621,8 @@ export class ThreeScene {
     this.playerPhysics?.dispose();
     this.playerPhysics = null;
     this.joystickUnsubscribe?.();
+    this.collisionLODManager?.dispose();
+    this.collisionLODManager = null;
     
     // Aggressive cleanup for mobile
     this.scene.traverse((object) => {
@@ -570,7 +636,6 @@ export class ThreeScene {
         }
       }
     });
-    
     this.renderer.dispose();
     (this.canvas as any).remove();
   }
