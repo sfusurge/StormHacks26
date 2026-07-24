@@ -305,14 +305,12 @@ export function updateCharacter(ctx: any, dt: number) {
     const targetYaw = Math.atan2(_faceDir.x, _faceDir.z);
     const currentYaw = ctx.character.rotation?.y ?? 0;
     const yawDelta = (targetYaw - currentYaw + Math.PI) % (Math.PI * 2) - Math.PI;
-    const normalTurn = THREE.MathUtils.lerp(12, 20,  ctx.currentSpeed / RUN_SPEED);
-    const diagonalTurn = THREE.MathUtils.lerp(18, 28,  ctx.currentSpeed / RUN_SPEED);
 
-    const turnRate = ctx.isBackingUp
-      ? ROT_BACKUP_RATE
-      : diagonalMove
-        ? diagonalTurn
-        : normalTurn;
+    const turnRate = THREE.MathUtils.lerp(
+      12,
+      24,
+      ctx.currentSpeed / RUN_SPEED
+    );
     const turnBlend = 1 - Math.exp(-turnRate * moveDt);
     ctx.character.rotation.y = currentYaw + yawDelta * turnBlend;
   }
