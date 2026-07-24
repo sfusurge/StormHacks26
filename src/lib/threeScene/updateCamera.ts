@@ -1,13 +1,8 @@
 import * as THREE from 'three';
 
 const CAMERA_POSITION_LERP = 0.06;
-const CAMERA_YAW_SPEED_STATIONARY = 10.0;
-const CAMERA_YAW_SPEED_MOVING = 1.7;
-const CAMERA_YAW_SPEED_RECOVER = 0.2;
 const CAMERA_LOOK_LERP = 0.04;
 const CAMERA_COLLISION_LERP = 0.1;
-const CAMERA_RECOVERY_TIME = 5;
-const CAMERA_YAW_SPEED_CLIMB = 3;
 
 export function updateCamera(ctx: any) {
 // target is the character head position (used as camera focus)
@@ -17,6 +12,9 @@ export function updateCamera(ctx: any) {
 
   const followDist = THREE.MathUtils.clamp(ctx.cameraDistance, ctx.minCameraDistance, ctx.maxCameraDistance);
   let desired = new THREE.Vector3();
+
+  ctx.cameraYawVelocity ??= 0;
+  ctx.cameraYaw ??= 0;
 
 // orbit mode: compute spherical offset from yaw/pitch when dragging
   if (ctx.isPointerDown) {
@@ -34,23 +32,39 @@ export function updateCamera(ctx: any) {
     const followYaw = ctx.character.rotation.y;
 
     const yawDiff =
-        THREE.MathUtils.euclideanModulo(
-            followYaw - ctx.cameraYaw + Math.PI,
-            Math.PI * 2
-        ) - Math.PI;
+      THREE.MathUtils.euclideanModulo(
+        followYaw - ctx.cameraYaw + Math.PI,
+        Math.PI * 2
+      ) - Math.PI;
 
-    const maxStep = CAMERA_YAW_SPEED_CLIMB * ctx.dt;
-
-    ctx.cameraYaw += THREE.MathUtils.clamp(
-        yawDiff,
-        -maxStep,
-        maxStep
+    const angle = THREE.MathUtils.smoothstep(
+      Math.abs(yawDiff),
+      0,
+      Math.PI
     );
 
+    const stiffness = THREE.MathUtils.lerp(
+      7,
+      22,
+      angle
+    );
+
+    const damping = THREE.MathUtils.lerp(
+      6,
+      9,
+      angle
+    );
+
+    const accel = stiffness * yawDiff - damping * ctx.cameraYawVelocity;
+
+    ctx.cameraYawVelocity += accel * ctx.dt;
+
+    ctx.cameraYaw += ctx.cameraYawVelocity * ctx.dt;
+
     desired.set(
-        target.x - Math.sin(ctx.cameraYaw) * followDist,
-        target.y + Math.max(0.1, followDist * 0.12),
-        target.z - Math.cos(ctx.cameraYaw) * followDist
+      target.x - Math.sin(ctx.cameraYaw) * followDist,
+      target.y + Math.max(0.1, followDist * 0.12),
+      target.z - Math.cos(ctx.cameraYaw) * followDist
     );
 // third-person follow: position camera behind character except when backing up, then orbit at smoothed yaw
   } else {
@@ -67,47 +81,40 @@ export function updateCamera(ctx: any) {
 
     const followYaw = Math.atan2(forward.x, forward.z);
 
-    if (ctx.wasBackingUp && !ctx.isBackingUp) {
-      ctx.recoveryTime = CAMERA_RECOVERY_TIME;
-    }
+    if (!ctx.isBackingUp) {
+      const yawDiff =
+        THREE.MathUtils.euclideanModulo(
+          followYaw - ctx.cameraYaw + Math.PI,
+          Math.PI * 2
+        ) - Math.PI;
 
-    ctx.wasBackingUp = ctx.isBackingUp;
-
-    const yawDiff =
-      THREE.MathUtils.euclideanModulo(followYaw - ctx.cameraYaw + Math.PI, Math.PI * 2) - Math.PI;
-    const rotateDiff = (followYaw - ctx.cameraYaw + Math.PI) % (Math.PI * 2) - Math.PI;
-
-    // if we're rotating after backup and the camera is close enough to the target, stop rotating
-    if (ctx.isRotatingAfterBackup && Math.abs(rotateDiff) < 0.2) {
-      ctx.isRotatingAfterBackup = false;
-    }
-
-    if (ctx.isBackingUp) {
-    // freeze while walking backwards
-    } else {
-      // update recovery timer
-      ctx.recoveryTime = Math.max(0, (ctx.recoveryTime ?? 0) - ctx.dt);
-
-      const normalSpeed =
-        ctx.currentSpeed > 0.1
-          ? CAMERA_YAW_SPEED_MOVING
-          : CAMERA_YAW_SPEED_STATIONARY;
-
-      const t = THREE.MathUtils.clamp(ctx.recoveryTime / 0.5, 0, 1);
-      const blend = t * t * t * (t * (t * 6 - 15) + 10);
-
-      // blend between normal speed and slow recovery speed based on how long it's been since we stopped backing up
-      const cameraYawSpeed = THREE.MathUtils.lerp(
-        normalSpeed,
-        CAMERA_YAW_SPEED_RECOVER,
-        blend
+      const angle = THREE.MathUtils.smoothstep(
+        Math.abs(yawDiff),
+        0,
+        Math.PI
       );
 
-      // slowly move camera back to default position
-      // interpolate using damping to make exponential ease-in/ease-out effect
-      const follow = 1 - Math.exp(-cameraYawSpeed * ctx.dt);
-      ctx.cameraYaw += yawDiff * follow;
-    }
+      const stiffness = THREE.MathUtils.lerp(
+        7,
+        30,
+        angle
+      );
+
+      const damping = THREE.MathUtils.lerp(
+        9,
+        12,
+        angle
+      );
+
+      const accel = stiffness * yawDiff - damping * ctx.cameraYawVelocity;
+
+      ctx.cameraYawVelocity += accel * ctx.dt;
+
+      ctx.cameraYaw += ctx.cameraYawVelocity * ctx.dt;
+  } else {
+    // make velocity slower when backing up so camera doesn't swing too far inward
+    ctx.cameraYawVelocity *= 0.01;
+  }
 
     // Orbit at the smoothed camera yaw so turning does not swing collision rays inward.
     desired.set(
