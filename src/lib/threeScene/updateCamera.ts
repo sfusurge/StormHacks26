@@ -43,16 +43,13 @@ export function updateCamera(ctx: any) {
     const followYaw = Math.atan2(forward.x, forward.z);
 
     if (ctx.wasBackingUp && !ctx.isBackingUp) {
-      ctx.isRotatingAfterBackup = true;
+      ctx.recoveryTime = 4;
     }
 
     ctx.wasBackingUp = ctx.isBackingUp;
 
     const yawDiff =
-      THREE.MathUtils.euclideanModulo(
-          followYaw - ctx.cameraYaw + Math.PI,
-          Math.PI * 2
-      ) - Math.PI;
+      THREE.MathUtils.euclideanModulo(followYaw - ctx.cameraYaw + Math.PI, Math.PI * 2) - Math.PI;
     const rotateDiff = (followYaw - ctx.cameraYaw + Math.PI) % (Math.PI * 2) - Math.PI;
 
     // if we're rotating after backup and the camera is close enough to the target, stop rotating
@@ -61,25 +58,27 @@ export function updateCamera(ctx: any) {
     }
 
     if (ctx.isBackingUp) {
-      // freeze while walking backwards
-    } else if (ctx.isRotatingAfterBackup) {
-      // slowly move camera back to default position
-      const maxStep = CAMERA_YAW_SPEED_RECOVER * ctx.dt;
-
-      if (Math.abs(yawDiff) <= maxStep) {
-        ctx.cameraYaw = followYaw;
-        ctx.isRotatingAfterBackup = false;
-      } else {
-        ctx.cameraYaw += Math.sign(yawDiff) * maxStep;
-      }
-
+    // freeze while walking backwards
     } else {
-      // normal camera follow
-      const cameraYawSpeed =
+      // update recovery timer
+      ctx.recoveryTime = Math.max(0, (ctx.recoveryTime ?? 0) - ctx.dt);
+
+      const normalSpeed =
         ctx.currentSpeed > 0.1
           ? CAMERA_YAW_SPEED_MOVING
           : CAMERA_YAW_SPEED_STATIONARY;
 
+      const t = THREE.MathUtils.clamp(ctx.recoveryTime / 0.5, 0, 1);
+      const blend = t * t * (3 - 2 * t);
+
+      // blend between normal speed and slow recovery speed based on how long it's been since we stopped backing up
+      const cameraYawSpeed = THREE.MathUtils.lerp(
+        normalSpeed,
+        CAMERA_YAW_SPEED_RECOVER,
+        blend
+      );
+
+      // slowly move camera back to default position
       const maxStep = cameraYawSpeed * ctx.dt;
 
       ctx.cameraYaw += THREE.MathUtils.clamp(
