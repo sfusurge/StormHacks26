@@ -8,8 +8,11 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.4.1",
+    "@gltf-transform/functions": "^4.4.1",
     "@sveltejs/vite-plugin-svelte": "^3.1.2",
     "autoprefixer": "^10.0.0",
+    "draco3dgltf": "^1.5.7",
     "postcss": "^8.0.0",
     "svelte": "^4.2.20",
     "tailwindcss": "^3.0.0",

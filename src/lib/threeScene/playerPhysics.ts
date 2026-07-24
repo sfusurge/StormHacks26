@@ -22,6 +22,10 @@ export class PlayerPhysics {
   body: CANNON.Body;
   readonly radius = PLAYER_PHYSICS_RADIUS;
   isClimbing = false;
+  coyoteTimer = 0;
+  jumpBufferTimer = 0;
+  isJumping = false;
+  visualYOffset = 0;
 
   constructor() {
     this.world = new CANNON.World();
@@ -57,12 +61,13 @@ export class PlayerPhysics {
     );
     this.body.velocity.set(0, 0, 0);
     this.body.wakeUp();
+    this.visualYOffset = 0;
   }
 
   syncToCharacter(position: THREE.Vector3, footOffset: number) {
     position.set(
       this.body.position.x,
-      this.body.position.y - this.radius + footOffset,
+      this.body.position.y - this.radius + footOffset + this.visualYOffset,
       this.body.position.z
     );
   }
@@ -70,6 +75,8 @@ export class PlayerPhysics {
   jump(velocity: number) {
     this.body.velocity.y = velocity;
     this.body.wakeUp();
+    this.isJumping = true;
+    this.visualYOffset = 0; // Reset visual offset on jump to avoid visual delay on launch
   }
 
   climb(velocity: number) {
@@ -104,6 +111,8 @@ export class PlayerPhysics {
     collidableMeshes: THREE.Mesh[]
   ) {
     const vel = this.body.velocity;
+    const prevY = this.body.position.y - this.radius + footOffset;
+
     _pos.set(
       this.body.position.x,
       this.body.position.y - this.radius + footOffset,
@@ -129,7 +138,30 @@ export class PlayerPhysics {
       if (this.isClimbing) {
         _pos.y += vel.y * dt;
       } else {
-        vel.y += GRAVITY * dt;
+        let gravityScale = 1.0;
+        if (vel.y > 0) {
+          // Normal rise: make it bouncier/loftier near the apex
+          if (vel.y < 1.5) {
+            gravityScale = 0.6; // Hang time at apex
+          } else {
+            gravityScale = 0.95; // Slightly lower gravity for bouncier rise
+          }
+        } else {
+          // Falling: snappy descent, but smooth near the apex transition
+          if (vel.y > -1.5) {
+            gravityScale = 0.6; // Hang time at apex
+          } else {
+            gravityScale = 1.5; // Snappy falling descent
+          }
+        }
+
+        vel.y += GRAVITY * gravityScale * dt;
+
+        // Terminal velocity clamp to prevent falling through floor
+        if (vel.y < -12.0) {
+          vel.y = -12.0;
+        }
+
         _pos.y += vel.y * dt;
       }
 
@@ -151,6 +183,7 @@ export class PlayerPhysics {
             _pos.y = targetY;
             vel.y = 0;
             grounded = true;
+            this.isJumping = false;
           }
         }
       }
@@ -162,6 +195,26 @@ export class PlayerPhysics {
       _pos.y - footOffset + this.radius,
       _pos.z
     );
+
+    // Visual step smoothing logic:
+    if (grounded) {
+      const newY = _pos.y;
+      const deltaY = newY - prevY;
+      if (Math.abs(deltaY) < MAX_STEP_HEIGHT + 0.1) {
+        this.visualYOffset -= deltaY;
+      }
+      // Smoothly blend visual Y back to physics Y
+      this.visualYOffset *= Math.exp(-12.0 * dt);
+      if (Math.abs(this.visualYOffset) < 0.001) {
+        this.visualYOffset = 0;
+      }
+    } else {
+      // Faster decay when airborne to prevent lagging behind jumps/falls
+      this.visualYOffset *= Math.exp(-24.0 * dt);
+      if (Math.abs(this.visualYOffset) < 0.001) {
+        this.visualYOffset = 0;
+      }
+    }
   }
 
   private _grounded = true;
@@ -187,12 +240,8 @@ function followFloor(
 
   if (dy > MAX_STEP_HEIGHT || dy < -MAX_DROP) return false;
 
-  if (dy > 0.01) {
-    const maxRise = moveSpeed * dt * 1.5;
-    pos.y += Math.min(dy, maxRise);
-  } else if (dy < -0.01) {
-    pos.y += dy * Math.min(1, FLOOR_FOLLOW * dt);
-  }
+  // Snap the physical position immediately for solid physics collision response
+  pos.y = targetY;
 
   return true;
 }
