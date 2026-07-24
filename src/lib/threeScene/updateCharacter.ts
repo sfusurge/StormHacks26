@@ -171,28 +171,33 @@ export function updateCharacter(ctx: any, dt: number) {
   inputForward = Math.max(-1, Math.min(1, inputForward));
   inputTurn = Math.max(-1, Math.min(1, inputTurn));
 
-  const movingForward = inputForward > 0;
   const turning = Math.abs(inputTurn) > 1e-6;
-  const diagonalMove = movingForward && turning;
-
-  if (turning && !diagonalMove && !ctx.isClimbing) {
-    const currentYaw = ctx.character.rotation?.y ?? 0;
-    ctx.character.rotation.y = currentYaw + inputTurn * ROT_IN_PLACE_RATE * moveDt;
-  }
+  const hasForwardInput = Math.abs(inputForward) > 1e-6;
+  const diagonalMove = hasForwardInput && turning;
 
   ctx.camera.getWorldDirection(_camForward);
   _camForward.y = 0;
-  if (_camForward.lengthSq() < 1e-6) _camForward.set(0, 0, -1);
+
+  if (_camForward.lengthSq() < 1e-6) {
+    _camForward.set(0, 0, -1);
+  }
+
   _camForward.normalize();
   _camRight.crossVectors(_camForward, _up).normalize();
 
-  if (diagonalMove) {
-    _moveDir.copy(_camForward).addScaledVector(_camRight, -inputTurn);
-  } else {
-    _moveDir.set(0, 0, 0).addScaledVector(_camForward, inputForward);
-  }
+  // make the move direction relative to the camera orientation
+  // so moving left/right walks sideways
+  _moveDir
+    .set(0, 0, 0)
+    .addScaledVector(_camForward, inputForward)
+    .addScaledVector(_camRight, -inputTurn);
 
   const hasMoveInput = _moveDir.lengthSq() > 1e-6;
+
+  if (hasMoveInput) {
+    _moveDir.normalize();
+  }
+
   let [vx, vz] = physics.getHorizontalVelocity();
 
   const wasGrounded = physics.grounded;
