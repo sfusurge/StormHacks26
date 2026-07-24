@@ -1,9 +1,119 @@
+@font-face {
+  font-family: 'Exposure';
+  src: url('../assets/fonts/Exposure.ttf') format('truetype');
+  font-weight: -100 100;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Exposure';
+  src: url('../assets/fonts/ExposureVAR-Italic.ttf') format('truetype');
+  font-weight: -100 100;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PP Mori';
+  src: url('../assets/fonts/PPMori-Regular.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --cursor-default: url('/cursors/Cursor-Point.svg') 20 17, auto;
+  --cursor-pointer: url('/cursors/Cursor-Touch.svg') 32 32, pointer;
+  --cursor-text: url('/cursors/textcursor-1.svg') 32 32, text;
+  --cursor-grab: url('/cursors/Cursor-Grab.svg') 32 32, grab;
+  --cursor-grabbing: url('/cursors/Cursor-Grab.svg') 32 32, grabbing;
+
+  cursor: var(--cursor-default);
+}
+
+body {
+  max-width: 100vw;
+  overflow-x: clip;
+  margin: 0;
+  padding: 0;
+}
+
+:where(p, h1, h2, h3, h4, h5, h6, li, blockquote, figcaption, span) {
+  cursor: var(--cursor-text);
+}
+
+:where(input[type='text'],
+  input[type='email'],
+  input[type='search'],
+  input[type='password'],
+  input[type='url'],
+  input[type='tel'],
+  textarea) {
+  cursor: var(--cursor-text);
+}
+
+:where(a,
+  button,
+  [role='button'],
+  input[type='submit'],
+  input[type='button'],
+  input[type='reset'],
+  label[for],
+  summary,
+  select) {
+  cursor: var(--cursor-pointer);
+}
+
+::selection {
+  background: #141417;
+  color: #0278FF;
+}
+
+.jit-container::selection {
+  background: transparent;
+  color: inherit;
+}
+
+.jit-container {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.font-light {
+  font-variation-settings: 'EXPO' 60;
+  font-weight: 60;
+}
+
+.font-neutral {
+  font-variation-settings: 'EXPO' -10;
+  font-weight: -10;
+}
+
+.font-regular {
+  font-variation-settings: 'EXPO' -20;
+  font-weight: -20;
+}
+
+.font-semibold {
+  font-variation-settings: 'EXPO' -60;
+  font-weight: -60;
+}
+
+.font-extrabold {
+  font-variation-settings: 'EXPO' -100;
+  font-weight: -100;
+}
+
 html, body, #app {
   height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: 'Exposure', 'PP Mori', sans-serif;
 }
 
 canvas { display: block; }

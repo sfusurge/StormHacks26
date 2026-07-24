@@ -4,7 +4,7 @@ import type { MeshBVH } from 'three-mesh-bvh';
 const PLAYER_RADIUS = 0.10;
 const SKIN = 0.025;
 const MOVE_SUBSTEP = 0.025;
-const RAY_HEIGHTS = [0.42, 0.72];
+const RAY_HEIGHTS = [0.42, 0.58];
 
 const _sphere = new THREE.Sphere(new THREE.Vector3(), PLAYER_RADIUS);
 const _closest = { point: new THREE.Vector3(), distance: 0, faceIndex: 0 };

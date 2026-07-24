@@ -1,9 +1,9 @@
-import * as CANNON from 'cannon-es';
 import * as THREE from 'three';
 import type { MeshBVH } from 'three-mesh-bvh';
 import { depenetrateWithBvh, sweepWithBvh } from './characterCollision';
 
 export const PLAYER_PHYSICS_RADIUS = 0.15;
+export const PLAYER_HEIGHT = 0.65;
 const GRAVITY = -9.82;
 const MAX_STEP_HEIGHT = 0.4;
 const MAX_DROP = 0.4;
@@ -14,12 +14,13 @@ const _origin = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 
 /**
- * Cannon-es kinematic body holds player velocity and state. Collision against
- * the room uses the BVH (cannon trimesh contact is too slow on the full mesh).
+ * Lightweight player physics — replaces the cannon-es World + kinematic Body
+ * that was only being used as a velocity holder.  Zero actual physics
+ * simulation was running; the real collision logic uses BVH sweeps.
+ *
+ * This eliminates the ~30-50 MB cannon-es runtime overhead.
  */
 export class PlayerPhysics {
-  world: CANNON.World;
-  body: CANNON.Body;
   readonly radius = PLAYER_PHYSICS_RADIUS;
   isClimbing = false;
   coyoteTimer = 0;
@@ -27,62 +28,64 @@ export class PlayerPhysics {
   isJumping = false;
   visualYOffset = 0;
 
-  constructor() {
-    this.world = new CANNON.World();
-    this.world.gravity.set(0, GRAVITY, 0);
+  /** Position of the physics sphere center. */
+  private posX = 0;
+  private posY = 0;
+  private posZ = 0;
 
-    this.body = new CANNON.Body({
-      mass: 0,
-      type: CANNON.Body.KINEMATIC,
-      fixedRotation: true,
-      linearDamping: 0,
-      allowSleep: false,
-    });
-    this.body.addShape(new CANNON.Sphere(this.radius));
-    this.world.addBody(this.body);
+  /** Velocity vector. */
+  private velX = 0;
+  private velY = 0;
+  private velZ = 0;
 
-    
-  }
+  // ── Velocity API (replaces body.velocity) ──
 
   getHorizontalVelocity(): [number, number] {
-    return [this.body.velocity.x, this.body.velocity.z];
+    return [this.velX, this.velZ];
   }
 
   setHorizontalVelocity(vx: number, vz: number) {
-    this.body.velocity.x = vx;
-    this.body.velocity.z = vz;
+    this.velX = vx;
+    this.velZ = vz;
+  }
+
+  get velocity() {
+    return { x: this.velX, y: this.velY, z: this.velZ };
+  }
+
+  // ── Position API (replaces body.position) ──
+
+  get position() {
+    return { x: this.posX, y: this.posY, z: this.posZ };
   }
 
   resetFromCharacter(position: THREE.Vector3, footOffset: number) {
-    this.body.position.set(
-      position.x,
-      position.y - footOffset + this.radius,
-      position.z
-    );
-    this.body.velocity.set(0, 0, 0);
-    this.body.wakeUp();
+    this.posX = position.x;
+    this.posY = position.y - footOffset + this.radius;
+    this.posZ = position.z;
+    this.velX = 0;
+    this.velY = 0;
+    this.velZ = 0;
     this.visualYOffset = 0;
   }
 
   syncToCharacter(position: THREE.Vector3, footOffset: number) {
     position.set(
-      this.body.position.x,
-      this.body.position.y - this.radius + footOffset + this.visualYOffset,
-      this.body.position.z
+      this.posX,
+      this.posY - this.radius + footOffset + this.visualYOffset,
+      this.posZ
     );
   }
 
   jump(velocity: number) {
-    this.body.velocity.y = velocity;
-    this.body.wakeUp();
+    this.velY = velocity;
     this.isJumping = true;
     this.visualYOffset = 0; // Reset visual offset on jump to avoid visual delay on launch
   }
 
   climb(velocity: number) {
     this.isClimbing = true;
-    this.body.velocity.y = velocity;
-    this.body.wakeUp();
+    this.velY = velocity;
   }
 
   stopClimbing() {
@@ -93,11 +96,11 @@ export class PlayerPhysics {
     findFloorY: (x: number, z: number, feetY: number) => number | null,
     footOffset: number
   ): boolean {
-    if (this.body.velocity.y > 0.12) return false;
-    const feetY = this.body.position.y - this.radius;
-    const floorY = findFloorY(this.body.position.x, this.body.position.z, feetY);
+    if (this.velY > 0.12) return false;
+    const feetY = this.posY - this.radius;
+    const floorY = findFloorY(this.posX, this.posZ, feetY);
     if (floorY === null) return false;
-    const dy = floorY + footOffset - (this.body.position.y - this.radius + footOffset);
+    const dy = floorY + footOffset - (this.posY - this.radius + footOffset);
     return dy <= MAX_STEP_HEIGHT && dy >= -MAX_DROP;
   }
 
@@ -110,70 +113,69 @@ export class PlayerPhysics {
     raycaster: THREE.Raycaster,
     collidableMeshes: THREE.Mesh[]
   ) {
-    const vel = this.body.velocity;
-    const prevY = this.body.position.y - this.radius + footOffset;
+    const prevY = this.posY - this.radius + footOffset;
 
     _pos.set(
-      this.body.position.x,
-      this.body.position.y - this.radius + footOffset,
-      this.body.position.z
+      this.posX,
+      this.posY - this.radius + footOffset,
+      this.posZ
     );
 
-    const swept = sweepWithBvh(bvh, _pos, footOffset, vel.x * dt, vel.z * dt);
+    const swept = sweepWithBvh(bvh, _pos, footOffset, this.velX * dt, this.velZ * dt);
     _pos.x += swept.dx;
     _pos.z += swept.dz;
     depenetrateWithBvh(bvh, _pos, footOffset);
 
     const feetY = _pos.y - footOffset;
     const floorY = findFloorY(_pos.x, _pos.z, feetY);
-    const airborne = vel.y > 0.05;
+    const airborne = this.velY > 0.05;
     let grounded = false;
 
     if (!airborne && floorY !== null) {
       grounded = followFloor(_pos, footOffset, floorY, moveSpeed, dt);
-      if (grounded && vel.y < 0) vel.y = 0;
+      if (grounded && this.velY < 0) this.velY = 0;
     }
 
     if (!grounded) {
       if (this.isClimbing) {
-        _pos.y += vel.y * dt;
+        _pos.y += this.velY * dt;
       } else {
         let gravityScale = 1.0;
-        if (vel.y > 0) {
+        if (this.velY > 0) {
           // Normal rise: make it bouncier/loftier near the apex
-          if (vel.y < 1.5) {
+          if (this.velY < 1.5) {
             gravityScale = 0.6; // Hang time at apex
           } else {
             gravityScale = 0.95; // Slightly lower gravity for bouncier rise
           }
         } else {
           // Falling: snappy descent, but smooth near the apex transition
-          if (vel.y > -1.5) {
+          if (this.velY > -1.5) {
             gravityScale = 0.6; // Hang time at apex
           } else {
             gravityScale = 1.5; // Snappy falling descent
           }
         }
 
-        vel.y += GRAVITY * gravityScale * dt;
+        this.velY += GRAVITY * gravityScale * dt;
 
         // Terminal velocity clamp to prevent falling through floor
-        if (vel.y < -12.0) {
-          vel.y = -12.0;
+        if (this.velY < -12.0) {
+          this.velY = -12.0;
         }
 
-        _pos.y += vel.y * dt;
+        _pos.y += this.velY * dt;
       }
 
-      if (vel.y > 0) {
-        const prevY = _pos.y - vel.y * dt;
-        _origin.set(_pos.x, prevY - footOffset + 1.2, _pos.z);
+      if (this.velY > 0) {
+        const prevYPos = _pos.y - this.velY * dt;
+        _origin.set(_pos.x, prevYPos - footOffset + PLAYER_HEIGHT, _pos.z);
         raycaster.set(_origin, _up);
-        raycaster.far = _pos.y - prevY + 0.15;
+        raycaster.far = _pos.y - prevYPos + 0.15;
         const hits = raycaster.intersectObjects(collidableMeshes, true);
         if (hits.length > 0) {
-          _pos.y = hits[0].point.y - 1.2 + footOffset;
-          vel.y = 0;
+          _pos.y = hits[0].point.y - PLAYER_HEIGHT + footOffset;
+          this.velY = 0;
         }
       } else {
         const landFloor = findFloorY(_pos.x, _pos.z, _pos.y - footOffset);
@@ -181,7 +183,7 @@ export class PlayerPhysics {
           const targetY = landFloor + footOffset;
           if (_pos.y <= targetY + 0.05) {
             _pos.y = targetY;
-            vel.y = 0;
+            this.velY = 0;
             grounded = true;
             this.isJumping = false;
           }
@@ -190,11 +192,9 @@ export class PlayerPhysics {
     }
 
     this._grounded = grounded;
-    this.body.position.set(
-      _pos.x,
-      _pos.y - footOffset + this.radius,
-      _pos.z
-    );
+    this.posX = _pos.x;
+    this.posY = _pos.y - footOffset + this.radius;
+    this.posZ = _pos.z;
 
     // Visual step smoothing logic:
     if (grounded) {
@@ -224,7 +224,7 @@ export class PlayerPhysics {
   }
 
   dispose() {
-    this.world.removeBody(this.body);
+    // No-op — no external resources to clean up (cannon-es world removed)
   }
 }
 

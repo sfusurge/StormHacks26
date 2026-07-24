@@ -1,23 +1,26 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader';
 import { alignCharacterToFloor, clampCharacterToRoom, getFootOffset, snapCharacterToFloor } from './threeScene/alignCharacterToFloor';
 import { updateCharacter as updateCharacterInternal } from './threeScene/updateCharacter';
 import { updateCamera as updateCameraInternal } from './threeScene/updateCamera';
 import { buildCollisionFromRoom } from './threeScene/buildCollisionFromRoom';
-import { createCameraCollisionMesh, normalizeRoomObject, createSimplifiedCollisionMesh } from './threeScene/collisionMap';
+import { createCameraCollisionMesh, normalizeRoomObject } from './threeScene/collisionMap';
 import { mergeRoomMeshesByMaterial, bakeAnimatedMeshesForMergedSpace } from './threeScene/mergeRoomMeshes';
 import { initPortalFlipbookVisibility, resetPortalFlipbookCache, syncPortalFlipbookFromTime } from './threeScene/portalFlipbook';
-import { createRoomLOD, createMobileLOD, CollisionLODManager } from './threeScene/lodSystem';
+import { createSingleMergedRoom, disposeSceneGraph } from './threeScene/lodSystem';
 import { findSpawnFloorY } from './threeScene/floorQuery';
 import { PlayerPhysics } from './threeScene/playerPhysics';
 import { writable } from 'svelte/store';
 import { joystickData } from '../stores/joystick';
+import { markersStore, activeDialogueStore, type MarkerData } from '../stores/markers';
 
 export class ThreeScene {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
+  focusTarget: { position: THREE.Vector3; lookAt: THREE.Vector3 } | null = null;
   canvas: HTMLCanvasElement;
   character: THREE.Object3D | undefined;
   interactables: THREE.Object3D[] = [];
@@ -54,8 +57,8 @@ export class ThreeScene {
   isGrounded = true;
   playerPhysics: PlayerPhysics | null = null;
   room: THREE.Object3D | null = null;
-  roomLOD: THREE.LOD | null = null;
-  collisionLODManager: CollisionLODManager | null = null;
+  /** Single merged room group (replaced THREE.LOD) */
+  roomGroup: THREE.Group | null = null;
   collisionData: any = null;
   portalFlipbookTime = 0;
   joystickUnsubscribe: (() => void) | null = null;
@@ -67,9 +70,13 @@ export class ThreeScene {
     this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     const powerPref = this.isMobile ? 'low-power' : 'high-performance';
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: powerPref, precision: this.isMobile ? 'lowp' : 'highp' });
-    this.renderer.setPixelRatio(this.isMobile ? 1 : Math.min(window.devicePixelRatio, 2));
+    // Cap pixel ratio at 1.5 (was 2) — barely noticeable quality difference, saves ~50-100MB framebuffer
+    this.renderer.setPixelRatio(this.isMobile ? 1 : Math.min(window.devicePixelRatio, 1.5));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = false;
+
+    // sRGB output for correct color display (matches GLB viewer pipelines)
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.loader = new GLTFLoader();
 
@@ -80,7 +87,15 @@ export class ThreeScene {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x20232a);
 
-    this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    // Generate a neutral studio environment map so PBR materials (glass windows,
+    // metallic surfaces) have something to reflect — without this they appear flat grey.
+    const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+    pmremGenerator.compileEquirectangularShader();
+    this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmremGenerator.dispose();
+
+    // Far plane reduced from 1000 → 50 (room is ~20 units; 1000 wasted depth precision)
+    this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 50);
     this.camera.position.set(0, 4, 1.1);
 
     this.setupLights();
@@ -94,10 +109,11 @@ export class ThreeScene {
   }
 
   setupLights() {
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+    // Original intensities — env map only affects glass/reflective materials
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
     hemi.position.set(0, 20, 0);
     this.scene.add(hemi);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.6);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
     dir.position.set(3, 10, 10);
     dir.castShadow = false;
     this.scene.add(dir);
@@ -115,7 +131,7 @@ export class ThreeScene {
           this.room = obj;
           this.roomBox = normalizeRoomObject(obj);
 
-          // Identify animated nodes before LOD creation
+          // Identify animated nodes before merging
           const animatedNodeNames = new Set<string>();
           if (g.animations?.length) {
             for (const clip of g.animations) {
@@ -140,6 +156,30 @@ export class ThreeScene {
             if (m.geometry?.attributes.normal === undefined) {
               m.geometry.computeVertexNormals();
             }
+
+            const nodeNameLower = node.name.toLowerCase();
+            const mats = Array.isArray(m.material) ? m.material : [m.material];
+            for (const mat of mats) {
+              if (!mat || !(mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) continue;
+              const stdMat = mat as THREE.MeshStandardMaterial;
+              const matNameLower = (stdMat.name || '').toLowerCase();
+
+              const isWindowOrGlass =
+                nodeNameLower.includes('window') || nodeNameLower.includes('glass') || nodeNameLower.includes('pane') ||
+                matNameLower.includes('window') || matNameLower.includes('glass') || matNameLower.includes('pane') ||
+                stdMat.transparent || stdMat.opacity < 0.95 || (stdMat as any).transmission > 0;
+
+              if (isWindowOrGlass) {
+                // Blow out the windows with strong env map reflection and brightness (slightly lowered)
+                stdMat.envMapIntensity = 3.5;
+                if (stdMat.emissive) {
+                  stdMat.emissiveIntensity = Math.max(stdMat.emissiveIntensity, 1.2);
+                }
+              } else {
+                // Normal indoor surfaces (stairs, bookshelves, walls, etc.) stay natural
+                stdMat.envMapIntensity = 0.2;
+              }
+            }
           });
 
           // initialize bounding boxes
@@ -153,30 +193,27 @@ export class ThreeScene {
           );
           this.playerBox = new THREE.Box3();
 
-          window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 75, stage: 'Creating detail levels...' } }));
+          window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 75, stage: 'Creating merged room...' } }));
 
-          // Create LOD system instead of single merged mesh
-          if (this.isMobile) {
-            this.roomLOD = createMobileLOD(obj, animatedNodeNames);
-          } else {
-            this.roomLOD = createRoomLOD(obj, animatedNodeNames);
-          }
-          
-          this.scene.add(this.roomLOD);
+          // Single merged room (replaces LOD system that cloned the scene 2-3×)
+          this.roomGroup = createSingleMergedRoom(obj, animatedNodeNames);
+          this.scene.add(this.roomGroup);
+
           this._alignCharacterToFloor();
           this._positionInteractable();
 
           window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 85, stage: 'Optimizing collision...' } }));
           this._syncPlayerToFloor();
-          // Build collision from the high-detail merged mesh (not original geometry)
-          const highDetailMesh = (this.roomLOD as any).highDetailMesh || obj;
+          // Build collision from the merged mesh
+          const highDetailMesh = (this.roomGroup as any).highDetailMesh || obj;
           void this._initCollision(highDetailMesh);
         },
         (progress) => {
           const percent = (progress.loaded / progress.total) * 70;
           window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: percent, stage: 'Downloading model...' } }));
         },
-        () => {
+        (error) => {
+          console.error('Error loading room model:', error);
           this.isLoading.set(false);
         }
     );
@@ -198,7 +235,8 @@ export class ThreeScene {
     const walkUrl = new URL('../../assets/models/sparky/sparky_walk.glb', import.meta.url).href;
     const waveUrl = new URL('../../assets/models/sparky/sparky_wave.glb', import.meta.url).href;
     
-    await this.loader.load(idleUrl, async (g) => {
+    try {
+      const g = await this.loader.loadAsync(idleUrl);
       const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
       const box = new THREE.Box3().setFromObject(obj);
       const size = new THREE.Vector3();
@@ -216,6 +254,10 @@ export class ThreeScene {
       obj.position.y += Math.abs(box.min.y);
 
       this.scene.remove(placeholder);
+      // Dispose placeholder geometry/material
+      placeholderGeom.dispose();
+      placeholderMat.dispose();
+
       this.character = obj;
       this.scene.add(obj);
       this._snapToFloor();
@@ -275,12 +317,9 @@ export class ThreeScene {
       }
 
       this.playAnimation('idle');
-    },
-    undefined, 
-    (error) => {
+    } catch (error) {
       console.error('Error loading character model:', error);
     }
-    );
   }
 
   _syncPlayerPhysics() {
@@ -336,40 +375,29 @@ export class ThreeScene {
       this.collisionBounds = collisionData.bounds;
       this.collisionData = collisionData;
 
-      // Create collision LOD manager
-      this.collisionLODManager = new CollisionLODManager(this.scene);
-
-      // Full detail collision (always accurate near camera)
-      const fullDetailMesh = await createCameraCollisionMesh(collisionData, (p) => {
-        const progress = 90 + Math.round(p * 2);
-        window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress, stage: 'Building collision tree (full)...' } }));
+      // Build a single collision mesh (removed 3-level collision LOD system)
+      const collisionMesh = await createCameraCollisionMesh(collisionData, (p) => {
+        const progress = 90 + Math.round(p * 8);
+        window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress, stage: 'Building collision tree...' } }));
       });
-      this.collisionLODManager.addLevel(fullDetailMesh, 0);
-
-      // Medium detail collision (mid distance) - 60% polygons
-      window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 92, stage: 'Building collision tree (medium)...' } }));
-      const mediumDetailMesh = await createSimplifiedCollisionMesh(collisionData, 0.6, (p) => {
-        const progress = 92 + Math.round(p * 3);
-        window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress, stage: 'Building collision tree (medium)...' } }));
-      });
-      this.collisionLODManager.addLevel(mediumDetailMesh, this.isMobile ? 4 : 15);
-
-      // Low detail collision (far distance) - 25% polygons  
-      window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 95, stage: 'Building collision tree (low)...' } }));
-      const lowDetailMesh = await createSimplifiedCollisionMesh(collisionData, 0.25, (p) => {
-        const progress = 95 + Math.round(p * 4);
-        window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress, stage: 'Building collision tree (low)...' } }));
-      });
-      this.collisionLODManager.addLevel(lowDetailMesh, this.isMobile ? 8 : 30);
-
-      // Use full detail collision as current (gets updated each frame based on camera distance)
-      this.cameraCollisionMesh = this.collisionLODManager.getCurrentMesh();
-      this.collidableMeshes = [this.cameraCollisionMesh!];
+      collisionMesh.visible = false;
+      this.scene.add(collisionMesh);
+      this.cameraCollisionMesh = collisionMesh;
+      this.collidableMeshes = [collisionMesh];
 
       this.playerPhysics = new PlayerPhysics();
 
       this._syncPlayerToFloor();
       this._positionInteractable();
+
+      // Release the original source scene graph — it's no longer needed
+      // (collision data has been extracted, merged mesh is in the scene)
+      if (this.room) {
+        disposeSceneGraph(this.room);
+        this.room = null;
+      }
+      // Also release the raw collision arrays (BVH has its own copy)
+      this.collisionData = null;
 
       this.roomLoaded = true;
       window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 100, stage: 'Complete!' } }));
@@ -465,9 +493,27 @@ export class ThreeScene {
       }
     });
 
-    // Listen for tap to jump
-    window.addEventListener('joystick-jump', () => {
-      this.jumpPressed = true;
+    window.addEventListener('select-marker', (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail) {
+        const posX = detail.position?.x ?? 0;
+        const posY = detail.position?.y ?? 0;
+        const posZ = detail.position?.z ?? 0;
+        this.focusTarget = {
+          position: new THREE.Vector3(posX, posY, posZ),
+          lookAt: new THREE.Vector3(posX, posY, posZ)
+        };
+        activeDialogueStore.set({
+          id: detail.id,
+          title: detail.title,
+          sentences: detail.sentences
+        });
+      }
+    });
+
+    window.addEventListener('hide-speech', () => {
+      this.focusTarget = null;
+      activeDialogueStore.set(null);
     });
 
     window.addEventListener('keydown', onKeyDown);
@@ -501,47 +547,94 @@ export class ThreeScene {
     }
   }
 
-  // dialogues
+  // dialogues and 3D map interaction markers
   speechTriggers = [
     {
-      position: new THREE.Vector3(1, 0, -5.85),
-      radius: 1,
+      id: 'surge-world',
+      position: new THREE.Vector3(1.0, 0.5, -5.85),
+      cameraTarget: {
+        position: new THREE.Vector3(1.0, 1.8, -4.2),
+        lookAt: new THREE.Vector3(1.0, 0.8, -5.85)
+      },
       title: 'Surge World',
-      text: 'Welcome player!'
+      sentences: [
+        'Welcome to StormHacks 2026! Explore the venue and interactive stations around the map.',
+        'Walk around using WASD or arrow keys. Click on points of interest to learn more about each location!'
+      ]
     },
     {
-      position: new THREE.Vector3(1.12, 2.76, 0.11),
-      radius: 1,
+      id: 'taskboard',
+      position: new THREE.Vector3(1.12, 2.6, 0.11),
+      cameraTarget: {
+        position: new THREE.Vector3(1.12, 2.8, 1.8),
+        lookAt: new THREE.Vector3(1.12, 2.6, 0.11)
+      },
       title: 'Taskboard',
-      text: 'This is a small text about the tasks...'
+      sentences: [
+        'This is the short text description that is associated with each section of the website. Have it look like it gets typed in each time animated in.',
+        'Here you can find all hackathon workshops, submission guidelines, and event schedules.',
+        'Make sure to submit your projects before the hacking deadline!'
+      ]
     },
+    {
+      id: 'workshop-lab',
+      position: new THREE.Vector3(-2.8, 0.8, -2.5),
+      cameraTarget: {
+        position: new THREE.Vector3(-1.2, 1.6, -1.5),
+        lookAt: new THREE.Vector3(-2.8, 0.8, -2.5)
+      },
+      title: 'Workshop Lab',
+      sentences: [
+        'Hands-on workshops on Web3, AI models, and 3D web development take place right here.',
+        'Mentors are available throughout the hackathon to assist with technical questions.'
+      ]
+    },
+    {
+      id: 'lounge-zone',
+      position: new THREE.Vector3(3.2, 0.8, 1.5),
+      cameraTarget: {
+        position: new THREE.Vector3(1.8, 1.6, 2.5),
+        lookAt: new THREE.Vector3(3.2, 0.8, 1.5)
+      },
+      title: 'Lounge Zone',
+      sentences: [
+        'Take a break! Enjoy snacks, games, and connect with fellow hackers.',
+        'Network with sponsor reps and catch lightning talks here during breaks.'
+      ]
+    }
   ];
-  activeTrigger: any = null;
 
   updateSpeechTriggers() {
-    if (!this.character) return;
+    const playerPos = this.character ? this.character.position : null;
+    const projVec = new THREE.Vector3();
+    const updatedMarkers: MarkerData[] = [];
 
-    const playerPos = this.character.position;
-    let nearTrigger = null;
-
-    // find if player is near any trigger
     for (const trigger of this.speechTriggers) {
-      const distance = playerPos.distanceTo(trigger.position);
-      if (distance < trigger.radius) {
-        nearTrigger = trigger;
-        break;
-      }
+      projVec.copy(trigger.position);
+      projVec.project(this.camera);
+
+      // In Three.js projection: z < 1 means in front of camera frustum
+      const isVisible = projVec.z < 1 && projVec.z > -1;
+      const screenX = (projVec.x * 0.5 + 0.5) * window.innerWidth;
+      const screenY = (-(projVec.y * 0.5) + 0.5) * window.innerHeight;
+
+      const distance = playerPos ? playerPos.distanceTo(trigger.position) : 999;
+      // When player gets closer to points (e.g. <= 3.2m), transition into speech bubble indicator
+      const isNear = distance <= 3.2;
+
+      updatedMarkers.push({
+        id: trigger.id,
+        title: trigger.title,
+        sentences: trigger.sentences,
+        position: { x: trigger.position.x, y: trigger.position.y, z: trigger.position.z },
+        cameraTarget: { x: trigger.cameraTarget.position.x, y: trigger.cameraTarget.position.y, z: trigger.cameraTarget.position.z },
+        screenPos: { x: screenX, y: screenY, visible: isVisible },
+        distance,
+        isNear
+      });
     }
 
-    // only emit events if the active trigger changed
-    if (nearTrigger !== this.activeTrigger) {
-      this.activeTrigger = nearTrigger;
-      if (nearTrigger) {
-        window.dispatchEvent(new CustomEvent('show-speech', { detail: nearTrigger }));
-      } else {
-        window.dispatchEvent(new CustomEvent('hide-speech'));
-      }
-    }
+    markersStore.set(updatedMarkers);
   }
 
   updateCharacter(dt: number) {
@@ -564,25 +657,10 @@ export class ThreeScene {
       }
 
       this.portalFlipbookTime += dt;
-      syncPortalFlipbookFromTime(this.roomLOD || this.room, this.portalFlipbookTime);
+      syncPortalFlipbookFromTime(this.roomGroup, this.portalFlipbookTime);
       this.updateCharacter(dt);
       this.updateSpeechTriggers();
       this.updateCamera();
-      
-      // Update LOD distances based on camera position
-      if (this.roomLOD) {
-        this.roomLOD.update(this.camera);
-      }
-
-      // Update collision LOD based on camera distance to room
-      if (this.collisionLODManager && this.room) {
-        this.collisionLODManager.update(this.camera.position, this.room.position);
-        const currentMesh = this.collisionLODManager.getCurrentMesh();
-        if (currentMesh && currentMesh !== this.cameraCollisionMesh) {
-          this.cameraCollisionMesh = currentMesh;
-          this.collidableMeshes = [currentMesh];
-        }
-      }
       
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(tick);
@@ -614,22 +692,39 @@ export class ThreeScene {
     this.playerPhysics?.dispose();
     this.playerPhysics = null;
     this.joystickUnsubscribe?.();
-    this.collisionLODManager?.dispose();
-    this.collisionLODManager = null;
     
-    // Aggressive cleanup for mobile
+    // Aggressive cleanup — dispose all geometries, materials, AND textures
     this.scene.traverse((object) => {
       if ((object as THREE.Mesh).isMesh) {
         const mesh = object as THREE.Mesh;
         mesh.geometry?.dispose();
-        if (Array.isArray(mesh.material)) {
-          mesh.material.forEach(m => m.dispose());
-        } else {
-          mesh.material?.dispose();
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const mat of materials) {
+          if (!mat) continue;
+          // Dispose all textures on the material
+          for (const key of Object.keys(mat)) {
+            const value = (mat as any)[key];
+            if (value && value.isTexture) {
+              value.dispose();
+            }
+          }
+          mat.dispose();
         }
       }
     });
+
+    // Dispose collision mesh BVH
+    if (this.cameraCollisionMesh?.geometry) {
+      const geom = this.cameraCollisionMesh.geometry as any;
+      if (geom.boundsTree) {
+        geom.boundsTree = null;
+      }
+      geom.dispose();
+    }
+
     this.renderer.dispose();
+    // Force GPU context loss to immediately free VRAM
+    this.renderer.forceContextLoss();
     (this.canvas as any).remove();
   }
 }
