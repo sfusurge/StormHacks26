@@ -8,12 +8,11 @@ const MOVE_SPEED = 2.0;
 const RUN_SPEED = 3.0;
 const GROUND_ACCEL_RATE = 10.0;
 const RUN_ACCEL_RATE = 13.0;
-const AIR_ACCEL_RATE = 3.5;
-const GROUND_DRAG = 9.0;
-const AIR_DRAG = 1.8;
-const ROT_BACKUP_RATE = 16;
+const AIR_ACCEL_RATE = 2.5;
+const GROUND_DRAG = 4.0;
+const AIR_DRAG = 0.5;
 const MAX_MOVE_DT = 0.025;
-const JUMP_VELOCITY = 3.05;
+const JUMP_VELOCITY = 3.00;
 const CLIMB_VELOCITY = 1.6;
 const SHIMMY_SPEED = 0.9;
 const CLIMB_TIMESCALE = 2.3;
@@ -251,7 +250,7 @@ export function updateCharacter(ctx: any, dt: number) {
 
   if (physics.jumpBufferTimer > 0) {
     if (ctx.isClimbing && ctx.jumpPressed) {
-      // jump off lader
+      // jump off ladder
       physics.stopClimbing();
       ctx.isClimbing = false;
       physics.jump(JUMP_VELOCITY);
