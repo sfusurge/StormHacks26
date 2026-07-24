@@ -94,7 +94,7 @@ export function updateCamera(ctx: any) {
           : CAMERA_YAW_SPEED_STATIONARY;
 
       const t = THREE.MathUtils.clamp(ctx.recoveryTime / 0.5, 0, 1);
-      const blend = t * t * (3 - 2 * t);
+      const blend = t * t * t * (t * (t * 6 - 15) + 10);
 
       // blend between normal speed and slow recovery speed based on how long it's been since we stopped backing up
       const cameraYawSpeed = THREE.MathUtils.lerp(
@@ -104,13 +104,9 @@ export function updateCamera(ctx: any) {
       );
 
       // slowly move camera back to default position
-      const maxStep = cameraYawSpeed * ctx.dt;
-
-      ctx.cameraYaw += THREE.MathUtils.clamp(
-        yawDiff,
-        -maxStep,
-        maxStep
-      );
+      // interpolate using damping to make exponential ease-in/ease-out effect
+      const follow = 1 - Math.exp(-cameraYawSpeed * ctx.dt);
+      ctx.cameraYaw += yawDiff * follow;
     }
 
     // Orbit at the smoothed camera yaw so turning does not swing collision rays inward.
