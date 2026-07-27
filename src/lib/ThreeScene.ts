@@ -1,20 +1,42 @@
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment';
-import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader';
-import { alignCharacterToFloor, clampCharacterToRoom, getFootOffset, snapCharacterToFloor } from './threeScene/alignCharacterToFloor';
-import { updateCharacter as updateCharacterInternal } from './threeScene/updateCharacter';
-import { updateCamera as updateCameraInternal } from './threeScene/updateCamera';
-import { buildCollisionFromRoom } from './threeScene/buildCollisionFromRoom';
-import { createCameraCollisionMesh, normalizeRoomObject } from './threeScene/collisionMap';
-import { mergeRoomMeshesByMaterial, bakeAnimatedMeshesForMergedSpace } from './threeScene/mergeRoomMeshes';
-import { initPortalFlipbookVisibility, resetPortalFlipbookCache, syncPortalFlipbookFromTime } from './threeScene/portalFlipbook';
-import { createSingleMergedRoom, disposeSceneGraph } from './threeScene/lodSystem';
-import { findSpawnFloorY } from './threeScene/floorQuery';
-import { PlayerPhysics } from './threeScene/playerPhysics';
-import { writable } from 'svelte/store';
-import { joystickData } from '../stores/joystick';
-import { markersStore, activeDialogueStore, type MarkerData } from '../stores/markers';
+import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader";
+import {
+  alignCharacterToFloor,
+  clampCharacterToRoom,
+  getFootOffset,
+  snapCharacterToFloor,
+} from "./threeScene/alignCharacterToFloor";
+import { updateCharacter as updateCharacterInternal } from "./threeScene/updateCharacter";
+import { updateCamera as updateCameraInternal } from "./threeScene/updateCamera";
+import { buildCollisionFromRoom } from "./threeScene/buildCollisionFromRoom";
+import {
+  createCameraCollisionMesh,
+  normalizeRoomObject,
+} from "./threeScene/collisionMap";
+import {
+  mergeRoomMeshesByMaterial,
+  bakeAnimatedMeshesForMergedSpace,
+} from "./threeScene/mergeRoomMeshes";
+import {
+  initPortalFlipbookVisibility,
+  resetPortalFlipbookCache,
+  syncPortalFlipbookFromTime,
+} from "./threeScene/portalFlipbook";
+import {
+  createSingleMergedRoom,
+  disposeSceneGraph,
+} from "./threeScene/lodSystem";
+import { findSpawnFloorY } from "./threeScene/floorQuery";
+import { PlayerPhysics } from "./threeScene/playerPhysics";
+import { writable } from "svelte/store";
+import { joystickData } from "../stores/joystick";
+import {
+  markersStore,
+  activeDialogueStore,
+  type MarkerData,
+} from "../stores/markers";
 
 export class ThreeScene {
   renderer: THREE.WebGLRenderer;
@@ -67,11 +89,21 @@ export class ThreeScene {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const powerPref = this.isMobile ? 'low-power' : 'high-performance';
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: powerPref, precision: this.isMobile ? 'lowp' : 'highp' });
+    this.isMobile =
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent,
+      );
+    const powerPref = this.isMobile ? "low-power" : "high-performance";
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: powerPref,
+      precision: this.isMobile ? "lowp" : "highp",
+    });
     // Cap pixel ratio at 1.5 (was 2) — barely noticeable quality difference, saves ~50-100MB framebuffer
-    this.renderer.setPixelRatio(this.isMobile ? 1 : Math.min(window.devicePixelRatio, 1.5));
+    this.renderer.setPixelRatio(
+      this.isMobile ? 1 : Math.min(window.devicePixelRatio, 1.5),
+    );
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = false;
 
@@ -81,7 +113,9 @@ export class ThreeScene {
     this.loader = new GLTFLoader();
 
     const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+    dracoLoader.setDecoderPath(
+      "https://www.gstatic.com/draco/versioned/decoders/1.5.7/",
+    );
     this.loader.setDRACOLoader(dracoLoader);
 
     this.scene = new THREE.Scene();
@@ -91,11 +125,19 @@ export class ThreeScene {
     // metallic surfaces) have something to reflect — without this they appear flat grey.
     const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
     pmremGenerator.compileEquirectangularShader();
-    this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environment = pmremGenerator.fromScene(
+      new RoomEnvironment(),
+      0.04,
+    ).texture;
     pmremGenerator.dispose();
 
     // Far plane reduced from 1000 → 50 (room is ~20 units; 1000 wasted depth precision)
-    this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 50);
+    this.camera = new THREE.PerspectiveCamera(
+      60,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      50,
+    );
     this.camera.position.set(0, 4, 1.1);
 
     this.setupLights();
@@ -120,102 +162,134 @@ export class ThreeScene {
   }
 
   makeRoom() {
-    const glbUrl = new URL('../../assets/models/room_foundation.glb', import.meta.url).href;
+    const glbUrl = new URL(
+      "../../assets/models/room_foundation.glb",
+      import.meta.url,
+    ).href;
 
     this.loader.load(
-        glbUrl,
-        (g) => {
-          window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 70, stage: 'Processing geometry...' } }));
+      glbUrl,
+      (g) => {
+        window.dispatchEvent(
+          new CustomEvent("loading-progress", {
+            detail: { progress: 70, stage: "Processing geometry..." },
+          }),
+        );
 
-          const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
-          this.room = obj;
-          this.roomBox = normalizeRoomObject(obj);
+        const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
+        this.room = obj;
+        this.roomBox = normalizeRoomObject(obj);
 
-          // Identify animated nodes before merging
-          const animatedNodeNames = new Set<string>();
-          if (g.animations?.length) {
-            for (const clip of g.animations) {
-              for (const track of clip.tracks) {
-                animatedNodeNames.add(track.name.split('.')[0]);
-              }
+        // Identify animated nodes before merging
+        const animatedNodeNames = new Set<string>();
+        if (g.animations?.length) {
+          for (const clip of g.animations) {
+            for (const track of clip.tracks) {
+              animatedNodeNames.add(track.name.split(".")[0]);
             }
           }
-
-          bakeAnimatedMeshesForMergedSpace(obj, animatedNodeNames);
-          initPortalFlipbookVisibility(obj);
-
-          obj.traverse((node) => {
-            if (!(node as THREE.Mesh).isMesh) return;
-            const m = node as THREE.Mesh;
-            m.castShadow = false;
-            m.receiveShadow = false;
-            m.frustumCulled = !animatedNodeNames.has(node.name);
-            if (!animatedNodeNames.has(node.name)) {
-              m.matrixAutoUpdate = false;
-            }
-            if (m.geometry?.attributes.normal === undefined) {
-              m.geometry.computeVertexNormals();
-            }
-
-            const nodeNameLower = node.name.toLowerCase();
-            const mats = Array.isArray(m.material) ? m.material : [m.material];
-            for (const mat of mats) {
-              if (!mat || !(mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) continue;
-              const stdMat = mat as THREE.MeshStandardMaterial;
-              const matNameLower = (stdMat.name || '').toLowerCase();
-
-              const isWindowOrGlass =
-                nodeNameLower.includes('window') || nodeNameLower.includes('glass') || nodeNameLower.includes('pane') ||
-                matNameLower.includes('window') || matNameLower.includes('glass') || matNameLower.includes('pane') ||
-                stdMat.transparent || stdMat.opacity < 0.95 || (stdMat as any).transmission > 0;
-
-              if (isWindowOrGlass) {
-                // Blow out the windows with strong env map reflection and brightness (slightly lowered)
-                stdMat.envMapIntensity = 3.5;
-                if (stdMat.emissive) {
-                  stdMat.emissiveIntensity = Math.max(stdMat.emissiveIntensity, 1.2);
-                }
-              } else {
-                // Normal indoor surfaces (stairs, bookshelves, walls, etc.) stay natural
-                stdMat.envMapIntensity = 0.2;
-              }
-            }
-          });
-
-          // initialize bounding boxes
-          this.ladderBox = new THREE.Box3().setFromCenterAndSize(
-              new THREE.Vector3(4.07, 1.25, -0.56),
-              new THREE.Vector3(0.1, 2, 0.6)
-          );
-          this.bedLadderBox = new THREE.Box3().setFromCenterAndSize(
-            new THREE.Vector3(1, 3, 3.5),
-            new THREE.Vector3(0.1, 0.85, 0.35)
-          );
-          this.playerBox = new THREE.Box3();
-
-          window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 75, stage: 'Creating merged room...' } }));
-
-          // Single merged room (replaces LOD system that cloned the scene 2-3×)
-          this.roomGroup = createSingleMergedRoom(obj, animatedNodeNames);
-          this.scene.add(this.roomGroup);
-
-          this._alignCharacterToFloor();
-          this._positionInteractable();
-
-          window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 85, stage: 'Optimizing collision...' } }));
-          this._syncPlayerToFloor();
-          // Build collision from the merged mesh
-          const highDetailMesh = (this.roomGroup as any).highDetailMesh || obj;
-          void this._initCollision(highDetailMesh);
-        },
-        (progress) => {
-          const percent = (progress.loaded / progress.total) * 70;
-          window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: percent, stage: 'Downloading model...' } }));
-        },
-        (error) => {
-          console.error('Error loading room model:', error);
-          this.isLoading.set(false);
         }
+
+        bakeAnimatedMeshesForMergedSpace(obj, animatedNodeNames);
+        initPortalFlipbookVisibility(obj);
+
+        obj.traverse((node) => {
+          if (!(node as THREE.Mesh).isMesh) return;
+          const m = node as THREE.Mesh;
+          m.castShadow = false;
+          m.receiveShadow = false;
+          m.frustumCulled = !animatedNodeNames.has(node.name);
+          if (!animatedNodeNames.has(node.name)) {
+            m.matrixAutoUpdate = false;
+          }
+          if (m.geometry?.attributes.normal === undefined) {
+            m.geometry.computeVertexNormals();
+          }
+
+          const nodeNameLower = node.name.toLowerCase();
+          const mats = Array.isArray(m.material) ? m.material : [m.material];
+          for (const mat of mats) {
+            if (
+              !mat ||
+              !(mat as THREE.MeshStandardMaterial).isMeshStandardMaterial
+            )
+              continue;
+            const stdMat = mat as THREE.MeshStandardMaterial;
+            const matNameLower = (stdMat.name || "").toLowerCase();
+
+            const isWindowOrGlass =
+              nodeNameLower.includes("window") ||
+              nodeNameLower.includes("glass") ||
+              nodeNameLower.includes("pane") ||
+              matNameLower.includes("window") ||
+              matNameLower.includes("glass") ||
+              matNameLower.includes("pane") ||
+              stdMat.transparent ||
+              stdMat.opacity < 0.95 ||
+              (stdMat as any).transmission > 0;
+
+            if (isWindowOrGlass) {
+              // Blow out the windows with strong env map reflection and brightness (slightly lowered)
+              stdMat.envMapIntensity = 3.5;
+              if (stdMat.emissive) {
+                stdMat.emissiveIntensity = Math.max(
+                  stdMat.emissiveIntensity,
+                  1.2,
+                );
+              }
+            } else {
+              // Normal indoor surfaces (stairs, bookshelves, walls, etc.) stay natural
+              stdMat.envMapIntensity = 0.2;
+            }
+          }
+        });
+
+        // initialize bounding boxes
+        this.ladderBox = new THREE.Box3().setFromCenterAndSize(
+          new THREE.Vector3(4.07, 1.25, -0.56),
+          new THREE.Vector3(0.1, 2, 0.6),
+        );
+        this.bedLadderBox = new THREE.Box3().setFromCenterAndSize(
+          new THREE.Vector3(1, 3, 3.5),
+          new THREE.Vector3(0.1, 0.85, 0.35),
+        );
+        this.playerBox = new THREE.Box3();
+
+        window.dispatchEvent(
+          new CustomEvent("loading-progress", {
+            detail: { progress: 75, stage: "Creating merged room..." },
+          }),
+        );
+
+        // Single merged room (replaces LOD system that cloned the scene 2-3×)
+        this.roomGroup = createSingleMergedRoom(obj, animatedNodeNames);
+        this.scene.add(this.roomGroup);
+
+        this._alignCharacterToFloor();
+        this._positionInteractable();
+
+        window.dispatchEvent(
+          new CustomEvent("loading-progress", {
+            detail: { progress: 85, stage: "Optimizing collision..." },
+          }),
+        );
+        this._syncPlayerToFloor();
+        // Build collision from the merged mesh
+        const highDetailMesh = (this.roomGroup as any).highDetailMesh || obj;
+        void this._initCollision(highDetailMesh);
+      },
+      (progress) => {
+        const percent = (progress.loaded / progress.total) * 70;
+        window.dispatchEvent(
+          new CustomEvent("loading-progress", {
+            detail: { progress: percent, stage: "Downloading model..." },
+          }),
+        );
+      },
+      (error) => {
+        console.error("Error loading room model:", error);
+        this.isLoading.set(false);
+      },
     );
   }
 
@@ -228,13 +302,31 @@ export class ThreeScene {
     this.scene.add(placeholder);
     this._alignCharacterToFloor();
 
-    const climbUrl = new URL('../../assets/models/sparky/sparky_climb.glb', import.meta.url).href;
-    const idleUrl = new URL('../../assets/models/sparky/sparky_idle.glb', import.meta.url).href;
-    const lookUrl = new URL('../../assets/models/sparky/sparky_look.glb', import.meta.url).href;
-    const thinkUrl = new URL('../../assets/models/sparky/sparky_think.glb', import.meta.url).href;
-    const walkUrl = new URL('../../assets/models/sparky/sparky_walk.glb', import.meta.url).href;
-    const waveUrl = new URL('../../assets/models/sparky/sparky_wave.glb', import.meta.url).href;
-    
+    const climbUrl = new URL(
+      "../../assets/models/sparky/sparky_climb.glb",
+      import.meta.url,
+    ).href;
+    const idleUrl = new URL(
+      "../../assets/models/sparky/sparky_idle.glb",
+      import.meta.url,
+    ).href;
+    const lookUrl = new URL(
+      "../../assets/models/sparky/sparky_look.glb",
+      import.meta.url,
+    ).href;
+    const thinkUrl = new URL(
+      "../../assets/models/sparky/sparky_think.glb",
+      import.meta.url,
+    ).href;
+    const walkUrl = new URL(
+      "../../assets/models/sparky/sparky_walk.glb",
+      import.meta.url,
+    ).href;
+    const waveUrl = new URL(
+      "../../assets/models/sparky/sparky_wave.glb",
+      import.meta.url,
+    ).href;
+
     try {
       const g = await this.loader.loadAsync(idleUrl);
       const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
@@ -268,22 +360,25 @@ export class ThreeScene {
 
       // Stagger animation loading to prevent shader compilation spike on mobile
       const animationUrls = [
-        { name: 'idle', url: idleUrl },
-        { name: 'walk', url: walkUrl },
-        { name: 'climb', url: climbUrl },
-        { name: 'look', url: lookUrl },
-        { name: 'think', url: thinkUrl },
-        { name: 'wave', url: waveUrl }
+        { name: "idle", url: idleUrl },
+        { name: "walk", url: walkUrl },
+        { name: "climb", url: climbUrl },
+        { name: "look", url: lookUrl },
+        { name: "think", url: thinkUrl },
+        { name: "wave", url: waveUrl },
       ];
 
       let loadedCount = 0;
       for (const { name, url } of animationUrls) {
-        await new Promise(resolve => {
+        await new Promise((resolve) => {
           setTimeout(async () => {
             try {
               const anim = await this.loader.loadAsync(url);
               if (anim.animations?.length) {
-                this.actions[name] = this.mixer!.clipAction(anim.animations[0], obj);
+                this.actions[name] = this.mixer!.clipAction(
+                  anim.animations[0],
+                  obj,
+                );
               }
               // Dispose of unused duplicate geometries/textures to avoid memory leaks
               if (anim.scene) {
@@ -293,7 +388,8 @@ export class ThreeScene {
                     if (Array.isArray(node.material)) {
                       node.material.forEach((mat) => {
                         for (const key in mat) {
-                          if (mat[key] && mat[key].isTexture) mat[key].dispose();
+                          if (mat[key] && mat[key].isTexture)
+                            mat[key].dispose();
                         }
                         mat.dispose();
                       });
@@ -316,15 +412,18 @@ export class ThreeScene {
         });
       }
 
-      this.playAnimation('idle');
+      this.playAnimation("idle");
     } catch (error) {
-      console.error('Error loading character model:', error);
+      console.error("Error loading character model:", error);
     }
   }
 
   _syncPlayerPhysics() {
     if (!this.character || !this.playerPhysics) return;
-    this.playerPhysics.resetFromCharacter(this.character.position, getFootOffset(this.character));
+    this.playerPhysics.resetFromCharacter(
+      this.character.position,
+      getFootOffset(this.character),
+    );
   }
 
   _syncPlayerToFloor() {
@@ -344,7 +443,9 @@ export class ThreeScene {
 
   _frameCameraOnCharacter() {
     if (!this.character) return;
-    const lookAt = this.character.position.clone().add(new THREE.Vector3(0, 0.6, 0));
+    const lookAt = this.character.position
+      .clone()
+      .add(new THREE.Vector3(0, 0.6, 0));
     this.camera.lookAt(lookAt);
   }
 
@@ -355,8 +456,8 @@ export class ThreeScene {
     const z = this.character.position.z;
 
     if (
-        this.collidableMeshes.length > 0 &&
-        snapCharacterToFloor(this.character, x, z, this)
+      this.collidableMeshes.length > 0 &&
+      snapCharacterToFloor(this.character, x, z, this)
     ) {
       return;
     }
@@ -370,16 +471,27 @@ export class ThreeScene {
 
   async _initCollision(room: THREE.Object3D) {
     try {
-      window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 90, stage: 'Building collision mesh...' } }));
+      window.dispatchEvent(
+        new CustomEvent("loading-progress", {
+          detail: { progress: 90, stage: "Building collision mesh..." },
+        }),
+      );
       const collisionData = buildCollisionFromRoom(room);
       this.collisionBounds = collisionData.bounds;
       this.collisionData = collisionData;
 
       // Build a single collision mesh (removed 3-level collision LOD system)
-      const collisionMesh = await createCameraCollisionMesh(collisionData, (p) => {
-        const progress = 90 + Math.round(p * 8);
-        window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress, stage: 'Building collision tree...' } }));
-      });
+      const collisionMesh = await createCameraCollisionMesh(
+        collisionData,
+        (p) => {
+          const progress = 90 + Math.round(p * 8);
+          window.dispatchEvent(
+            new CustomEvent("loading-progress", {
+              detail: { progress, stage: "Building collision tree..." },
+            }),
+          );
+        },
+      );
       collisionMesh.visible = false;
       this.scene.add(collisionMesh);
       this.cameraCollisionMesh = collisionMesh;
@@ -400,10 +512,14 @@ export class ThreeScene {
       this.collisionData = null;
 
       this.roomLoaded = true;
-      window.dispatchEvent(new CustomEvent('loading-progress', { detail: { progress: 100, stage: 'Complete!' } }));
+      window.dispatchEvent(
+        new CustomEvent("loading-progress", {
+          detail: { progress: 100, stage: "Complete!" },
+        }),
+      );
       this.isLoading.set(false);
     } catch (e) {
-      console.error('Collision init error:', e);
+      console.error("Collision init error:", e);
       this.roomLoaded = true;
       this.isLoading.set(false);
     }
@@ -417,7 +533,7 @@ export class ThreeScene {
       depthWrite: false,
     });
     const obj = new THREE.Mesh(geom, mat);
-    (obj as any).userData = { url: 'https://portal.sfusurge.com' };
+    (obj as any).userData = { url: "https://portal.sfusurge.com" };
     this.scene.add(obj);
     this.interactables.push(obj);
   }
@@ -432,48 +548,71 @@ export class ThreeScene {
     const x = (box.min.x + box.max.x) / 2;
     const z = (box.min.z + box.max.z) / 2 - 1.25;
     const floorY = findSpawnFloorY(this, x, z) ?? box.min.y;
-    const halfHeight = (mesh.geometry as THREE.BoxGeometry).parameters.height / 2;
+    const halfHeight =
+      (mesh.geometry as THREE.BoxGeometry).parameters.height / 2;
     mesh.position.set(x, floorY + halfHeight + 0.25, z);
   }
 
   bind() {
     this.canvas.tabIndex = 0;
-    this.canvas.style.outline = 'none';
+    this.canvas.style.outline = "none";
 
-    window.addEventListener('resize', this.onResize.bind(this));
+    window.addEventListener("resize", this.onResize.bind(this));
 
     const setKey = (key: string, down: boolean) => {
       this.keys[key] = down;
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      setKey('shift', e.shiftKey);
+      setKey("shift", e.shiftKey);
       const key = e.key.toLowerCase();
-      if (['w', 'a', 's', 'd', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+      if (
+        [
+          "w",
+          "a",
+          "s",
+          "d",
+          " ",
+          "arrowup",
+          "arrowdown",
+          "arrowleft",
+          "arrowright",
+        ].includes(key)
+      ) {
         e.preventDefault();
       }
       setKey(key, true);
-      if (key === ' ' && !e.repeat) {
+      if (key === " " && !e.repeat) {
         this.jumpPressed = true;
       }
       // e.code fallback (more reliable when layout / focus is odd)
       const codeMap: Record<string, string> = {
-        KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd',
-        ArrowUp: 'arrowup', ArrowDown: 'arrowdown',
-        ArrowLeft: 'arrowleft', ArrowRight: 'arrowright',
+        KeyW: "w",
+        KeyA: "a",
+        KeyS: "s",
+        KeyD: "d",
+        ArrowUp: "arrowup",
+        ArrowDown: "arrowdown",
+        ArrowLeft: "arrowleft",
+        ArrowRight: "arrowright",
       };
       const mapped = codeMap[e.code];
       if (mapped) setKey(mapped, true);
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
-      setKey('shift', e.shiftKey);
+      setKey("shift", e.shiftKey);
       const key = e.key.toLowerCase();
       setKey(key, false);
       const codeMap: Record<string, string> = {
-        KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd',
-        ArrowUp: 'arrowup', ArrowDown: 'arrowdown',
-        ArrowLeft: 'arrowleft', ArrowRight: 'arrowright',
+        KeyW: "w",
+        KeyA: "a",
+        KeyS: "s",
+        KeyD: "d",
+        ArrowUp: "arrowup",
+        ArrowDown: "arrowdown",
+        ArrowLeft: "arrowleft",
+        ArrowRight: "arrowright",
       };
       const mapped = codeMap[e.code];
       if (mapped) setKey(mapped, false);
@@ -486,14 +625,14 @@ export class ThreeScene {
         const joystick = joystickEntries[0];
         this.joystickInput = {
           x: joystick.x,
-          y: joystick.y
+          y: joystick.y,
         };
       } else {
         this.joystickInput = { x: 0, y: 0 };
       }
     });
 
-    window.addEventListener('select-marker', (e: Event) => {
+    window.addEventListener("select-marker", (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail) {
         const posX = detail.position?.x ?? 0;
@@ -501,24 +640,24 @@ export class ThreeScene {
         const posZ = detail.position?.z ?? 0;
         this.focusTarget = {
           position: new THREE.Vector3(posX, posY, posZ),
-          lookAt: new THREE.Vector3(posX, posY, posZ)
+          lookAt: new THREE.Vector3(posX, posY, posZ),
         };
         activeDialogueStore.set({
           id: detail.id,
           title: detail.title,
-          sentences: detail.sentences
+          sentences: detail.sentences,
         });
       }
     });
 
-    window.addEventListener('hide-speech', () => {
+    window.addEventListener("hide-speech", () => {
       this.focusTarget = null;
       activeDialogueStore.set(null);
     });
 
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-    this.canvas.addEventListener('click', (ev) => {
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    this.canvas.addEventListener("click", (ev) => {
       this.canvas.focus();
       this.onClick(ev);
     });
@@ -542,7 +681,9 @@ export class ThreeScene {
       const picked = hits[0].object as any;
       const component = picked.userData?.component;
       if (component) {
-        window.dispatchEvent(new CustomEvent('open-webview', { detail: { component } }));
+        window.dispatchEvent(
+          new CustomEvent("open-webview", { detail: { component } }),
+        );
       }
     }
   }
@@ -550,58 +691,58 @@ export class ThreeScene {
   // dialogues and 3D map interaction markers
   speechTriggers = [
     {
-      id: 'surge-world',
+      id: "surge-world",
       position: new THREE.Vector3(1.0, 0.5, -5.85),
       cameraTarget: {
         position: new THREE.Vector3(1.0, 1.8, -4.2),
-        lookAt: new THREE.Vector3(1.0, 0.8, -5.85)
+        lookAt: new THREE.Vector3(1.0, 0.8, -5.85),
       },
-      title: 'Surge World',
+      title: "Surge World",
       sentences: [
-        'Welcome to StormHacks 2026! Explore the venue and interactive stations around the map.',
-        'Walk around using WASD or arrow keys. Click on points of interest to learn more about each location!'
-      ]
+        "Welcome to StormHacks 2026! Explore the venue and interactive stations around the map.",
+        "Walk around using WASD or arrow keys. Click on points of interest to learn more about each location!",
+      ],
     },
     {
-      id: 'taskboard',
+      id: "taskboard",
       position: new THREE.Vector3(1.12, 2.6, 0.11),
       cameraTarget: {
         position: new THREE.Vector3(1.12, 2.8, 1.8),
-        lookAt: new THREE.Vector3(1.12, 2.6, 0.11)
+        lookAt: new THREE.Vector3(1.12, 2.6, 0.11),
       },
-      title: 'Taskboard',
+      title: "Taskboard",
       sentences: [
-        'This is the short text description that is associated with each section of the website. Have it look like it gets typed in each time animated in.',
-        'Here you can find all hackathon workshops, submission guidelines, and event schedules.',
-        'Make sure to submit your projects before the hacking deadline!'
-      ]
+        "This is the short text description that is associated with each section of the website. Have it look like it gets typed in each time animated in.",
+        "Here you can find all hackathon workshops, submission guidelines, and event schedules.",
+        "Make sure to submit your projects before the hacking deadline!",
+      ],
     },
     {
-      id: 'workshop-lab',
+      id: "workshop-lab",
       position: new THREE.Vector3(-2.8, 0.8, -2.5),
       cameraTarget: {
         position: new THREE.Vector3(-1.2, 1.6, -1.5),
-        lookAt: new THREE.Vector3(-2.8, 0.8, -2.5)
+        lookAt: new THREE.Vector3(-2.8, 0.8, -2.5),
       },
-      title: 'Workshop Lab',
+      title: "Workshop Lab",
       sentences: [
-        'Hands-on workshops on Web3, AI models, and 3D web development take place right here.',
-        'Mentors are available throughout the hackathon to assist with technical questions.'
-      ]
+        "Hands-on workshops on Web3, AI models, and 3D web development take place right here.",
+        "Mentors are available throughout the hackathon to assist with technical questions.",
+      ],
     },
     {
-      id: 'lounge-zone',
+      id: "lounge-zone",
       position: new THREE.Vector3(3.2, 0.8, 1.5),
       cameraTarget: {
         position: new THREE.Vector3(1.8, 1.6, 2.5),
-        lookAt: new THREE.Vector3(3.2, 0.8, 1.5)
+        lookAt: new THREE.Vector3(3.2, 0.8, 1.5),
       },
-      title: 'Lounge Zone',
+      title: "Lounge Zone",
       sentences: [
-        'Take a break! Enjoy snacks, games, and connect with fellow hackers.',
-        'Network with sponsor reps and catch lightning talks here during breaks.'
-      ]
-    }
+        "Take a break! Enjoy snacks, games, and connect with fellow hackers.",
+        "Network with sponsor reps and catch lightning talks here during breaks.",
+      ],
+    },
   ];
 
   updateSpeechTriggers() {
@@ -620,17 +761,30 @@ export class ThreeScene {
 
       const distance = playerPos ? playerPos.distanceTo(trigger.position) : 999;
       // When player gets closer to points (e.g. <= 3.2m), transition into speech bubble indicator
-      const isNear = distance <= 3.2;
+      let isNear = distance <= 3.2;
+
+      // Turn taskboard speech bubble into an indicator when player is on the other side of the wall
+      if (trigger.id === "taskboard" && playerPos && playerPos.z > 0.4) {
+        isNear = false;
+      }
 
       updatedMarkers.push({
         id: trigger.id,
         title: trigger.title,
         sentences: trigger.sentences,
-        position: { x: trigger.position.x, y: trigger.position.y, z: trigger.position.z },
-        cameraTarget: { x: trigger.cameraTarget.position.x, y: trigger.cameraTarget.position.y, z: trigger.cameraTarget.position.z },
+        position: {
+          x: trigger.position.x,
+          y: trigger.position.y,
+          z: trigger.position.z,
+        },
+        cameraTarget: {
+          x: trigger.cameraTarget.position.x,
+          y: trigger.cameraTarget.position.y,
+          z: trigger.cameraTarget.position.z,
+        },
         screenPos: { x: screenX, y: screenY, visible: isVisible },
         distance,
-        isNear
+        isNear,
       });
     }
 
@@ -661,7 +815,7 @@ export class ThreeScene {
       this.updateCharacter(dt);
       this.updateSpeechTriggers();
       this.updateCamera();
-      
+
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(tick);
     };
@@ -677,11 +831,11 @@ export class ThreeScene {
     this.currentAction?.fadeOut(0.4);
 
     next
-        .reset()
-        .setEffectiveTimeScale(1)
-        .setEffectiveWeight(1)
-        .fadeIn(0.4)
-        .play();
+      .reset()
+      .setEffectiveTimeScale(1)
+      .setEffectiveWeight(1)
+      .fadeIn(0.4)
+      .play();
 
     this.currentAction = next;
   }
@@ -692,13 +846,15 @@ export class ThreeScene {
     this.playerPhysics?.dispose();
     this.playerPhysics = null;
     this.joystickUnsubscribe?.();
-    
+
     // Aggressive cleanup — dispose all geometries, materials, AND textures
     this.scene.traverse((object) => {
       if ((object as THREE.Mesh).isMesh) {
         const mesh = object as THREE.Mesh;
         mesh.geometry?.dispose();
-        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        const materials = Array.isArray(mesh.material)
+          ? mesh.material
+          : [mesh.material];
         for (const mat of materials) {
           if (!mat) continue;
           // Dispose all textures on the material
