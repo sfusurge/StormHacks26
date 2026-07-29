@@ -26,8 +26,10 @@ export function clampCharacterToRoom(
 }
 
 export function getFootOffset(character: THREE.Object3D): number {
-  const charBox = new THREE.Box3().setFromObject(character);
-  return character.position.y - charBox.min.y;
+    character.updateMatrixWorld(true);
+    const charBox = new THREE.Box3().setFromObject(character);
+    const TAIL_OFFSET = 0.05;
+    return character.position.y - charBox.min.y - TAIL_OFFSET;
 }
 
 /** Place character feet on the walkable floor at x/z. Returns false if no hit. */

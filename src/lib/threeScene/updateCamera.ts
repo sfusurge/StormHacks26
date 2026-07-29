@@ -33,8 +33,12 @@ export function updateCamera(ctx: any) {
 
   // When focused on an object, zoom in to a closer distance (e.g. 0.95m)
   const followDist = isFocused
-    ? 0.95
-    : THREE.MathUtils.clamp(ctx.cameraDistance, ctx.minCameraDistance, ctx.maxCameraDistance);
+      ? 0.95
+      : THREE.MathUtils.clamp(ctx.cameraDistance, ctx.minCameraDistance, ctx.maxCameraDistance);
+
+  ctx.cameraYawVelocity ??= 0;
+  ctx.cameraYaw ??= 0;
+  ctx.desiredCameraYaw ??= ctx.cameraYaw;
 
 // orbit mode: compute spherical offset from yaw/pitch when dragging
   if (ctx.isPointerDown) {

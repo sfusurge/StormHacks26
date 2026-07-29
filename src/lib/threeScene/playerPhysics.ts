@@ -7,7 +7,6 @@ export const PLAYER_HEIGHT = 0.65;
 const GRAVITY = -9.82;
 const MAX_STEP_HEIGHT = 0.4;
 const MAX_DROP = 0.4;
-const FLOOR_FOLLOW = 14;
 
 const _pos = new THREE.Vector3();
 const _origin = new THREE.Vector3();
