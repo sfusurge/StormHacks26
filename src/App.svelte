@@ -5,6 +5,8 @@
   import SpeechBox from './components/speechBox.svelte';
   import Loading from './components/Loading.svelte';
   import MobileJoystick from './components/MobileJoystick.svelte';
+  import InteractionMarkers from './components/InteractionMarkers.svelte';
+  import { activeDialogueStore } from './stores/markers';
   import { ThreeScene } from './lib/ThreeScene';
 
   let show = false;
@@ -14,10 +16,7 @@
   let isMobile = false;
 
   let showSpeech = false;
-  let speechData = { title: '', text: '', portalUrl: '' };
-
-  let showPortalDialogue = false;
-  let portalData = { name: '', url: '' };
+  let speechData = { title: '', text: '' as string | string[], portalUrl: '' };
 
   const components: Record<string, any> = {
     InfoPanel
@@ -41,6 +40,7 @@
 
   function hideSpeechHandler() {
     showSpeech = false;
+    activeDialogueStore.set(null);
   }
 
   onMount(() => {
@@ -65,13 +65,6 @@
     window.removeEventListener('show-speech', showSpeechHandler as EventListener);
     window.removeEventListener('hide-speech', hideSpeechHandler as EventListener);
   });
-
-  /*let showSpeech = true;
-
-  let speechData = {
-    title: "Name of Location",
-    text: "This is the short text description that is associated with each section of the website."
-  };*/
 </script>
 
 <style>
@@ -83,6 +76,14 @@
     bottom: 24px;
     transform: translateX(-50%);
     z-index: 50;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .speech-layer :global(> *) {
+    pointer-events: auto;
   }
 </style>
 
@@ -98,6 +99,10 @@
   <Loading />
 {/if}
 
+{#if !isLoading}
+  <InteractionMarkers />
+{/if}
+
 {#if show && !isLoading}
   <Overlay title="In-Scene Component" on:close={close}>
     {#if currentComponent}
@@ -106,9 +111,24 @@
   </Overlay>
 {/if}
 
-{#if showSpeech && !isLoading}
+{#if $activeDialogueStore && !isLoading}
   <div class="speech-layer">
-    <SpeechBox title={speechData.title} text={speechData.text} portalUrl={speechData.portalUrl} />
+    <SpeechBox
+      title={$activeDialogueStore.title}
+      text={$activeDialogueStore.sentences}
+      portalUrl={$activeDialogueStore.portalUrl || ''}
+      on:close={hideSpeechHandler}
+    />
+  </div>
+{:else if showSpeech && !isLoading}
+  <div class="speech-layer">
+    <SpeechBox
+      title={speechData.title}
+      text={speechData.text}
+      portalUrl={speechData.portalUrl}
+      on:close={hideSpeechHandler}
+    />
   </div>
 {/if}
+
 
