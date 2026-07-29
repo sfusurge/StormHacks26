@@ -36,21 +36,24 @@ export class ThreeScene {
   ladderBox: THREE.Box3 | null = null;
   bedLadderBox: THREE.Box3 | null = null;
   playerBox: THREE.Box3 | null = null;
+  dt = 0;
 
   collidableMeshes: THREE.Mesh[] = [];
   cameraCollisionMesh: THREE.Mesh | null = null;
 
   cameraYaw = 0;
   cameraPitch = 0;
-  cameraDistance = 1.0;
+  cameraDistance = 1.25;
   minCameraDistance = 0.9;
   maxCameraDistance = 1.8;
   characterMargin = 0.35;
   cameraMargin = 0.5;
-  cameraVerticalMargin = 0.1;
+  cameraVerticalMargin = 1;
   jumpPressed = false;
   isPointerDown = false;
   isBackingUp = false;
+  wasBackingUp = false;
+  isRotatingAfterBackup = false;
   isGrounded = true;
   playerPhysics: PlayerPhysics | null = null;
   room: THREE.Object3D | null = null;
@@ -557,6 +560,7 @@ export class ThreeScene {
     const tick = () => {
       if (this.disposed) return;
       const dt = clock.getDelta();
+      this.dt = dt;
 
       // update model animation
       if (this.mixer) {
@@ -590,11 +594,14 @@ export class ThreeScene {
     requestAnimationFrame(tick);
   }
 
-  playAnimation(name: string) {
+  playAnimation(name: string, timeScale = 1) {
     const next = this.actions[name];
     if (!next) return;
 
-    if (this.currentAction === next) return; // Already playing this action
+    if (this.currentAction === next) {
+      next.setEffectiveTimeScale(timeScale); // allow updating speed even if already playing
+      return;
+    }
 
     this.currentAction?.fadeOut(0.4);
 

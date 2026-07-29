@@ -4,10 +4,9 @@ import type { MeshBVH } from 'three-mesh-bvh';
 import { depenetrateWithBvh, sweepWithBvh } from './characterCollision';
 
 export const PLAYER_PHYSICS_RADIUS = 0.15;
-const GRAVITY = -9.82;
+const GRAVITY = -9.8;
 const MAX_STEP_HEIGHT = 0.4;
 const MAX_DROP = 0.4;
-const FLOOR_FOLLOW = 14;
 
 const _pos = new THREE.Vector3();
 const _origin = new THREE.Vector3();

@@ -5,19 +5,17 @@ import { getCollisionBvh } from './characterCollision';
 import type { PlayerPhysics } from './playerPhysics';
 
 const MOVE_SPEED = 2.0;
-const RUN_SPEED = 3.6;
+const RUN_SPEED = 3.0;
 const GROUND_ACCEL_RATE = 10.0;
 const RUN_ACCEL_RATE = 13.0;
-const AIR_ACCEL_RATE = 3.5;
-const GROUND_DRAG = 9.0;
-const AIR_DRAG = 1.8;
-const ROT_TURN_RATE = 12;
-const ROT_DIAGONAL_TURN_RATE = 18;
-const ROT_IN_PLACE_RATE = 2;
-const ROT_BACKUP_RATE = 16;
+const AIR_ACCEL_RATE = 2.5;
+const GROUND_DRAG = 6.0;
+const AIR_DRAG = 0.5;
 const MAX_MOVE_DT = 0.025;
-const JUMP_VELOCITY = 3.5;
-const CLIMB_VELOCITY = 1.7;
+const JUMP_VELOCITY = 3.00;
+const CLIMB_VELOCITY = 1.6;
+const SHIMMY_SPEED = 0.9;
+const CLIMB_TIMESCALE = 2.3;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _camForward = new THREE.Vector3();
@@ -83,11 +81,11 @@ function checkInteractableContact(ctx: {
 function updateAnimation(ctx: any, speed: number, isClimbing: boolean, isGrounded: boolean) {
   if (isClimbing) {
     if (ctx.currentAction?.getClip().name !== "climb") {
-      ctx.playAnimation("climb");
+      ctx.playAnimation("climb", CLIMB_TIMESCALE);
     }
   } else if (speed > 0.1) {
     if (ctx.currentAction?.getClip().name !== "walk") {
-      ctx.playAnimation("walk");
+      ctx.playAnimation("walk", 1.4 * (speed / MOVE_SPEED));
     }
   } else {
     if (ctx.currentAction?.getClip().name !== "idle") {
@@ -161,34 +159,40 @@ export function updateCharacter(ctx: any, dt: number) {
   inputForward = Math.max(-1, Math.min(1, inputForward));
   inputTurn = Math.max(-1, Math.min(1, inputTurn));
 
-  const movingForward = inputForward > 0;
   const turning = Math.abs(inputTurn) > 1e-6;
-  const diagonalMove = movingForward && turning;
-
-  if (turning && !diagonalMove) {
-    const currentYaw = ctx.character.rotation?.y ?? 0;
-    ctx.character.rotation.y = currentYaw + inputTurn * ROT_IN_PLACE_RATE * moveDt;
-  }
+  const hasForwardInput = Math.abs(inputForward) > 1e-6;
+  const diagonalMove = hasForwardInput && turning;
 
   ctx.camera.getWorldDirection(_camForward);
   _camForward.y = 0;
-  if (_camForward.lengthSq() < 1e-6) _camForward.set(0, 0, -1);
+
+  if (_camForward.lengthSq() < 1e-6) {
+    _camForward.set(0, 0, -1);
+  }
+
   _camForward.normalize();
   _camRight.crossVectors(_camForward, _up).normalize();
 
-  if (diagonalMove) {
-    _moveDir.copy(_camForward).addScaledVector(_camRight, -inputTurn);
-  } else {
-    _moveDir.set(0, 0, 0).addScaledVector(_camForward, inputForward);
-  }
+  // make the move direction relative to the camera orientation
+  // so moving left/right walks sideways
+  _moveDir
+    .set(0, 0, 0)
+    .addScaledVector(_camForward, inputForward)
+    .addScaledVector(_camRight, -inputTurn);
 
   const hasMoveInput = _moveDir.lengthSq() > 1e-6;
+
+  if (hasMoveInput) {
+    _moveDir.normalize();
+  }
+
   let [vx, vz] = physics.getHorizontalVelocity();
 
   const wasGrounded = physics.grounded;
 
   // Horizontal movement (exponential acceleration / decay)
-  if (hasMoveInput) {
+  if (!ctx.isClimbing) {
+    if (hasMoveInput) {
     _moveDir.normalize();
     const accelRate = wasGrounded 
       ? (ctx.keys['shift'] ? RUN_ACCEL_RATE : GROUND_ACCEL_RATE)
@@ -197,7 +201,8 @@ export function updateCharacter(ctx: any, dt: number) {
     const targetVz = _moveDir.z * moveSpeed;
     vx += (targetVx - vx) * (1 - Math.exp(-accelRate * moveDt));
     vz += (targetVz - vz) * (1 - Math.exp(-accelRate * moveDt));
-  } else {
+  }
+  else {
     const drag = wasGrounded ? GROUND_DRAG : AIR_DRAG;
     vx += (0 - vx) * (1 - Math.exp(-drag * moveDt));
     vz += (0 - vz) * (1 - Math.exp(-drag * moveDt));
@@ -207,12 +212,26 @@ export function updateCharacter(ctx: any, dt: number) {
       vz = 0;
     }
   }
+  }
+  else {
+    // shimmy left/right while climbing, relative to the locked ladder-facing yaw
+    const yaw = ctx.climbYaw ?? (ctx.character.rotation?.y ?? 0);
+    const rightX = Math.cos(yaw);
+    const rightZ = -Math.sin(yaw);
+    const targetVx = rightX * inputTurn * SHIMMY_SPEED;
+    const targetVz = rightZ * inputTurn * SHIMMY_SPEED;
+    // const maxDelta = GROUND_ACCEL_RATE * moveDt;
+    vx += (targetVx - vx) * (1 - Math.exp(-GROUND_ACCEL_RATE * moveDt));
+    vz += (targetVz - vz) * (1 - Math.exp(-GROUND_ACCEL_RATE * moveDt));
+  }
 
   physics.setHorizontalVelocity(vx, vz);
 
+  ctx.wasBackingUp = ctx.isBackingUp;
   ctx.isBackingUp = false;
 
   ctx.isClimbing = ctx.playerBox.intersectsBox(ctx.ladderBox) || ctx.playerBox.intersectsBox(ctx.bedLadderBox);
+  ctx.climbYaw = undefined;
 
   // Jump buffering & coyote time updates
   if (ctx.jumpPressed) {
@@ -230,13 +249,20 @@ export function updateCharacter(ctx: any, dt: number) {
   }
 
   if (physics.jumpBufferTimer > 0) {
-    if (ctx.isClimbing) {
+    if (ctx.isClimbing && ctx.jumpPressed) {
+      // jump off ladder
       physics.stopClimbing();
       ctx.isClimbing = false;
       physics.jump(JUMP_VELOCITY);
       physics.jumpBufferTimer = 0;
     } else if (physics.coyoteTimer > 0) {
-      physics.jump(JUMP_VELOCITY);
+      const jumpVelocity =
+      THREE.MathUtils.lerp(
+          JUMP_VELOCITY,
+          JUMP_VELOCITY * 1.25,
+          ctx.currentSpeed / RUN_SPEED // jump boost if moving fast
+      );
+      physics.jump(jumpVelocity);
       physics.jumpBufferTimer = 0;
       physics.coyoteTimer = 0;
     }
@@ -244,6 +270,12 @@ export function updateCharacter(ctx: any, dt: number) {
 
   // ladder climbing logic
   if (ctx.isClimbing) {
+    if (ctx.climbYaw === undefined) {
+      // lock character rotation to camera direction when first entering ladder
+      ctx.climbYaw = ctx.character.rotation?.y ?? 0;
+    }
+    ctx.character.rotation.y = ctx.climbYaw; // keep facing ladder
+
     if (ctx.keys["w"]) {
       physics.climb(CLIMB_VELOCITY);
     } else if (ctx.keys["s"]) {
@@ -251,13 +283,9 @@ export function updateCharacter(ctx: any, dt: number) {
     } else {
       physics.climb(0); // freeze on ladder if no input
     }
-
-    // stop sideways drift while not moving on ladder
-    if (ctx.isClimbing && inputForward === 0 && inputTurn === 0) {
-        physics.setHorizontalVelocity(0, 0);
-    }
   } else {
     physics.stopClimbing();
+    ctx.climbYaw = undefined;
   }
 
   physics.step(
@@ -274,11 +302,19 @@ export function updateCharacter(ctx: any, dt: number) {
 
   const [actualVx, actualVz] = physics.getHorizontalVelocity();
   const currentSpeed = Math.hypot(actualVx, actualVz);
+  // save current speed into context for camera yaw smoothing
+  ctx.currentSpeed = currentSpeed;
 
-  if (currentSpeed > 1e-4 || hasMoveInput) {
+  if (!ctx.isClimbing && (currentSpeed > 1e-4 || hasMoveInput)) { // only update facing direction if moving or has input, not when climbing
     if (hasMoveInput) {
       _faceDir.copy(_moveDir);
-      ctx.isBackingUp = inputForward < 0 && Math.abs(inputForward) >= Math.abs(inputTurn);
+      const characterForward = new THREE.Vector3(
+        Math.sin(ctx.character.rotation.y),
+        0,
+        Math.cos(ctx.character.rotation.y)
+      );
+
+      ctx.isBackingUp = hasMoveInput && _faceDir.dot(characterForward) < -0.3;
     } else {
       _faceDir.set(actualVx, 0, actualVz).normalize();
     }
@@ -286,11 +322,12 @@ export function updateCharacter(ctx: any, dt: number) {
     const targetYaw = Math.atan2(_faceDir.x, _faceDir.z);
     const currentYaw = ctx.character.rotation?.y ?? 0;
     const yawDelta = (targetYaw - currentYaw + Math.PI) % (Math.PI * 2) - Math.PI;
-    const turnRate = ctx.isBackingUp
-      ? ROT_BACKUP_RATE
-      : diagonalMove
-        ? ROT_DIAGONAL_TURN_RATE
-        : ROT_TURN_RATE;
+
+    const turnRate = THREE.MathUtils.lerp(
+      12,
+      24,
+      ctx.currentSpeed / RUN_SPEED
+    );
     const turnBlend = 1 - Math.exp(-turnRate * moveDt);
     ctx.character.rotation.y = currentYaw + yawDelta * turnBlend;
   }
