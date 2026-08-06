@@ -708,14 +708,13 @@ export class ThreeScene {
     },
     {
       id: "taskboard",
-      position: new THREE.Vector3(1.12, 2.6, 0.11),
+      position: new THREE.Vector3(1.12, 3, 0.11),
       cameraTarget: {
-        position: new THREE.Vector3(1.12, 2.8, 1.8),
-        lookAt: new THREE.Vector3(1.12, 2.6, 0.11),
+        position: new THREE.Vector3(1.12, 3, 1.8),
+        lookAt: new THREE.Vector3(1.12, 3, 0.11),
       },
       title: "Taskboard",
       sentences: [
-        "This is the short text description that is associated with each section of the website. Have it look like it gets typed in each time animated in.",
         "Here you can find all hackathon workshops, submission guidelines, and event schedules.",
         "Make sure to submit your projects before the hacking deadline!",
       ],
@@ -735,7 +734,7 @@ export class ThreeScene {
     },
     {
       id: "lounge-zone",
-      position: new THREE.Vector3(3.2, 0.8, 1.5),
+      position: new THREE.Vector3(2.4, 1, -0.7),
       cameraTarget: {
         position: new THREE.Vector3(1.8, 1.6, 2.5),
         lookAt: new THREE.Vector3(3.2, 0.8, 1.5),
@@ -758,18 +757,21 @@ export class ThreeScene {
       projVec.project(this.camera);
 
       // In Three.js projection: z < 1 means in front of camera frustum
-      const isVisible = projVec.z < 1 && projVec.z > -1;
+      let isVisible = projVec.z < 1 && projVec.z > -1;
       const screenX = (projVec.x * 0.5 + 0.5) * window.innerWidth;
       const screenY = (-(projVec.y * 0.5) + 0.5) * window.innerHeight;
 
       const distance = playerPos ? playerPos.distanceTo(trigger.position) : 999;
       // When player gets closer to points (e.g. <= 3.2m), transition into speech bubble indicator
-      let isNear = distance <= 3.2;
+      let isNear = distance <= 1.6;
 
       // Turn taskboard speech bubble into an indicator when player is on the other side of the wall
       if (trigger.id === "taskboard" && playerPos && playerPos.z > 0.4) {
         isNear = false;
       }
+
+      // markers disappear when the player is far away or on the floor below
+      if (distance >= 5.5 || playerPos && playerPos.y > trigger.position.y + 1) isVisible = false;
 
       updatedMarkers.push({
         id: trigger.id,
