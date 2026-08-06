@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 
-const CAMERA_POSITION_LERP = 0.06;
-const CAMERA_LOOK_LERP = 0.04;
+const CAMERA_POSITION_RATE = 3.7;
+const CAMERA_LOOK_RATE = 10;
 const CAMERA_COLLISION_LERP = 0.1;
 const CAMERA_RETURN_SPEED = 0.4;
 const MAX_CAMERA_DT = 0.033;
+const MAX_OFFCENTER_FRAC = 0.35;
 
 // Reusable temporaries — avoids ~480 Vector3 allocations per second at 60fps
 const _target = new THREE.Vector3();
@@ -16,6 +17,7 @@ const _dirNorm = new THREE.Vector3();
 const _vMin = new THREE.Vector3();
 const _vMax = new THREE.Vector3();
 const _newPos = new THREE.Vector3();
+const _lookLag = new THREE.Vector3();
 const _headOffset = new THREE.Vector3(0, 0.45, 0);
 
 // stiffness and damping ramp with the size of the yaw error
@@ -192,10 +194,26 @@ export function updateCamera(ctx: any) {
   }
 
 // smooth camera movement toward desired and look at target
-  ctx.camera.position.lerp(_desired, CAMERA_POSITION_LERP);
+  const smoothDt = Math.min(ctx.dt ?? 0, MAX_CAMERA_DT);
+
+  ctx.camera.position.lerp(_desired, 1 - Math.exp(-CAMERA_POSITION_RATE * smoothDt));
+
   if (!ctx.smoothCameraLookTarget) {
     ctx.smoothCameraLookTarget = _target.clone();
   }
-  ctx.smoothCameraLookTarget.lerp(_target, CAMERA_LOOK_LERP);
+  ctx.smoothCameraLookTarget.lerp(_target, 1 - Math.exp(-CAMERA_LOOK_RATE * smoothDt));
+
+  // limit how far the camera look target can move from the center
+  // use the current camera distance, FOV, and aspect ratio so it stays correct when the camera moves or the screen size changes
+  const hHalfFov = Math.atan(
+    Math.tan(THREE.MathUtils.degToRad(ctx.camera.fov) * 0.5) * ctx.camera.aspect
+  );
+  const maxLag = (ctx.smoothCameraDist ?? followDist) * Math.tan(hHalfFov) * MAX_OFFCENTER_FRAC;
+
+  _lookLag.subVectors(_target, ctx.smoothCameraLookTarget);
+  if (_lookLag.lengthSq() > maxLag * maxLag) {
+    ctx.smoothCameraLookTarget.copy(_target).addScaledVector(_lookLag.normalize(), -maxLag);
+  }
+
   ctx.camera.lookAt(ctx.smoothCameraLookTarget);
 }
