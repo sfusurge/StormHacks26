@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 
-const CAMERA_POSITION_LERP = 0.06;
-const CAMERA_YAW_FOLLOW = 0.08;
-const CAMERA_LOOK_LERP = 0.04;
+const CAMERA_POSITION_RATE = 3.7;
+const CAMERA_LOOK_RATE = 10;
 const CAMERA_COLLISION_LERP = 0.1;
+const CAMERA_RETURN_SPEED = 0.4;
+const MAX_CAMERA_DT = 0.033;
+const MAX_OFFCENTER_FRAC = 0.35;
 
 // Reusable temporaries — avoids ~480 Vector3 allocations per second at 60fps
 const _target = new THREE.Vector3();
@@ -15,7 +17,37 @@ const _dirNorm = new THREE.Vector3();
 const _vMin = new THREE.Vector3();
 const _vMax = new THREE.Vector3();
 const _newPos = new THREE.Vector3();
+const _lookLag = new THREE.Vector3();
 const _headOffset = new THREE.Vector3(0, 0.45, 0);
+
+// stiffness and damping ramp with the size of the yaw error
+// small corrections stay soft
+// large ones (a sharp turn, stepping off a ladder) catch up quickly
+function springCameraYaw(
+  ctx: any,
+  targetYaw: number,
+  stiffMin: number,
+  stiffMax: number,
+  dampMin: number,
+  dampMax: number
+) {
+  const cameraDiff =
+    THREE.MathUtils.euclideanModulo(
+      targetYaw - ctx.cameraYaw + Math.PI,
+      Math.PI * 2
+    ) - Math.PI;
+
+  const angle = THREE.MathUtils.smoothstep(Math.abs(cameraDiff), 0, Math.PI);
+  const stiffness = THREE.MathUtils.lerp(stiffMin, stiffMax, angle);
+  const damping = THREE.MathUtils.lerp(dampMin, dampMax, angle);
+
+  // clamp dt so a large catchup frame doesn't overshoot the spring and cause camera to oscillate wildly
+  const dt = Math.min(ctx.dt ?? 0, MAX_CAMERA_DT);
+
+  const accel = stiffness * cameraDiff - damping * ctx.cameraYawVelocity;
+  ctx.cameraYawVelocity += accel * dt;
+  ctx.cameraYaw += ctx.cameraYawVelocity * dt;
+}
 
 export function updateCamera(ctx: any) {
   const isFocused = !!ctx.focusTarget;
@@ -51,17 +83,42 @@ export function updateCamera(ctx: any) {
       followDist * cosP * Math.cos(yaw)
     );
     _desired.copy(_target).add(_offset);
-// third-person follow: position camera behind target without changing camera angle if focused
+// third-person follow: settle the camera behind the character with a damped spring
   } else {
-    if (!isFocused && !ctx.isBackingUp && ctx.character) {
+    if (isFocused) {
+      // hold the current angle/velocity while zoomed onto a marker
+      // releasing velocity/angle resumes from a calm spring instead of a snap
+      ctx.cameraYawVelocity = 0;
+    } else if (ctx.isClimbing && ctx.character) {
+      // always keep camera behind character while climbing
+      ctx.desiredCameraYaw = ctx.character.rotation.y;
+      springCameraYaw(ctx, ctx.desiredCameraYaw, 7, 22, 6, 9);
+    } else if (ctx.character) {
+      // compute the direction the camera should eventually face
       _forward.set(0, 0, 0);
       ctx.character.getWorldDirection(_forward);
       _forward.y = 0;
       if (_forward.lengthSq() < 1e-6) _forward.set(0, 0, 1);
       _forward.normalize();
+
       const followYaw = Math.atan2(_forward.x, _forward.z);
-      const yawDiff = (followYaw - ctx.cameraYaw + Math.PI) % (Math.PI * 2) - Math.PI;
-      ctx.cameraYaw += yawDiff * CAMERA_YAW_FOLLOW;
+
+      if (!ctx.isBackingUp) {
+        const desiredDiff =
+          THREE.MathUtils.euclideanModulo(
+            followYaw - ctx.desiredCameraYaw + Math.PI,
+            Math.PI * 2
+          ) - Math.PI;
+
+        // move target slowly toward the character's forward direction so camera doesn't swing too far inward
+        const dt = Math.min(ctx.dt ?? 0, MAX_CAMERA_DT);
+        ctx.desiredCameraYaw += desiredDiff * (1 - Math.exp(-CAMERA_RETURN_SPEED * dt));
+
+        springCameraYaw(ctx, ctx.desiredCameraYaw, 7, 30, 9, 12);
+      } else {
+        // kill spring momentum when backing up so camera doesn't swing too far inward
+        ctx.cameraYawVelocity = 0;
+      }
     }
 
     // Orbit at the smoothed camera yaw so turning does not swing collision rays inward.
@@ -137,10 +194,26 @@ export function updateCamera(ctx: any) {
   }
 
 // smooth camera movement toward desired and look at target
-  ctx.camera.position.lerp(_desired, CAMERA_POSITION_LERP);
+  const smoothDt = Math.min(ctx.dt ?? 0, MAX_CAMERA_DT);
+
+  ctx.camera.position.lerp(_desired, 1 - Math.exp(-CAMERA_POSITION_RATE * smoothDt));
+
   if (!ctx.smoothCameraLookTarget) {
     ctx.smoothCameraLookTarget = _target.clone();
   }
-  ctx.smoothCameraLookTarget.lerp(_target, CAMERA_LOOK_LERP);
+  ctx.smoothCameraLookTarget.lerp(_target, 1 - Math.exp(-CAMERA_LOOK_RATE * smoothDt));
+
+  // limit how far the camera look target can move from the center
+  // use the current camera distance, FOV, and aspect ratio so it stays correct when the camera moves or the screen size changes
+  const hHalfFov = Math.atan(
+    Math.tan(THREE.MathUtils.degToRad(ctx.camera.fov) * 0.5) * ctx.camera.aspect
+  );
+  const maxLag = (ctx.smoothCameraDist ?? followDist) * Math.tan(hHalfFov) * MAX_OFFCENTER_FRAC;
+
+  _lookLag.subVectors(_target, ctx.smoothCameraLookTarget);
+  if (_lookLag.lengthSq() > maxLag * maxLag) {
+    ctx.smoothCameraLookTarget.copy(_target).addScaledVector(_lookLag.normalize(), -maxLag);
+  }
+
   ctx.camera.lookAt(ctx.smoothCameraLookTarget);
 }
