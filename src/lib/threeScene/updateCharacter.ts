@@ -16,7 +16,7 @@ const JUMP_VELOCITY = 3.00;
 const CLIMB_VELOCITY = 1.6;
 const SHIMMY_SPEED = 0.9;
 const CLIMB_TIMESCALE = 2.3;
-const LADDER_DETACH_TIME = 0.3;
+const LADDER_DROP_VELOCITY = -0.8;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _camForward = new THREE.Vector3();
@@ -239,12 +239,14 @@ export function updateCharacter(ctx: any, dt: number) {
   // only climb if by ladder and pressing up, or if already climbing and not grounded
   const wantsClimb = !!ctx.keys['w'] || !!ctx.keys['arrowup'] || inputForward > 0.5;
 
-  ctx.ladderDetachTimer = Math.max(0, (ctx.ladderDetachTimer ?? 0) - moveDt);
+  // holding W while falling past the ladder is still allowed,
+  // but releasing W sets a flag that prevents re-grabbing until the next time the player presses W.
+  if (!wantsClimb) ctx.ladderReleased = false;
 
-  if (!inLadderVolume || ctx.ladderDetachTimer > 0) {
+  if (!inLadderVolume) {
     ctx.isClimbing = false;
   } else if (!ctx.isClimbing) {
-    ctx.isClimbing = wantsClimb;
+    ctx.isClimbing = wantsClimb && !ctx.ladderReleased;
   } else {
     // let go once we're back on solid ground and no longer climbing up
     ctx.isClimbing = !(isCurrentlyGrounded && !wantsClimb);
@@ -266,13 +268,11 @@ export function updateCharacter(ctx: any, dt: number) {
 
   if (physics.jumpBufferTimer > 0) {
     if (ctx.isClimbing) {
-      // jump off ladder
-      physics.stopClimbing();
+      // Let go and fall so no upwards jump
+      physics.releaseClimb(LADDER_DROP_VELOCITY);
       ctx.isClimbing = false;
       ctx.climbYaw = undefined;
-      // keep the ladder volume from re-latching mid-jump while up is still held
-      ctx.ladderDetachTimer = LADDER_DETACH_TIME;
-      physics.jump(JUMP_VELOCITY);
+      ctx.ladderReleased = true;
       physics.jumpBufferTimer = 0;
     } else if (physics.coyoteTimer > 0) {
       const jumpVelocity =

@@ -78,7 +78,7 @@ export class ThreeScene {
   cameraMargin = 0.5;
   cameraVerticalMargin = 1;
   jumpPressed = false;
-  ladderDetachTimer = 0;
+  ladderReleased = false;
   climbInput = 0;
   isPointerDown = false;
   isBackingUp = false;
