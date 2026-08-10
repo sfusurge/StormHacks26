@@ -12,7 +12,6 @@ export type CollisionProxy = {
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
-const _centroid = new THREE.Vector3();
 const _size = new THREE.Vector3();
 const _center = new THREE.Vector3();
 
@@ -20,7 +19,7 @@ function vertexAt(positions: number[], index: number, out: THREE.Vector3) {
     return out.set(positions[index * 3], positions[index * 3 + 1], positions[index * 3 + 2]);
 }
 
-// drop triangles sitting inside a proxy's remove volume.
+// drop triangles sitting inside a proxy's remove volume if all three vertices are inside it
 function filterProxiedTriangles(
     positions: number[],
     indices: number[],
@@ -33,9 +32,11 @@ function filterProxiedTriangles(
         vertexAt(positions, indices[i], _a);
         vertexAt(positions, indices[i + 1], _b);
         vertexAt(positions, indices[i + 2], _c);
-        _centroid.copy(_a).add(_b).add(_c).multiplyScalar(1 / 3);
 
-        if (proxies.some((p) => p.remove.containsPoint(_centroid))) continue;
+        const fullyInside = proxies.some(
+            (p) => p.remove.containsPoint(_a) && p.remove.containsPoint(_b) && p.remove.containsPoint(_c)
+        );
+        if (fullyInside) continue;
 
         kept.push(indices[i], indices[i + 1], indices[i + 2]);
     }
