@@ -91,6 +91,14 @@ export class PlayerPhysics {
     this.isClimbing = false;
   }
 
+  // when letting go of ladder, just straight up fall
+  // uses negative velocity to avoid upwards jumping
+  releaseClimb(velocity: number) {
+    this.isClimbing = false;
+    this.velY = velocity;
+    this.isJumping = false;
+  }
+
   isGrounded(
     findFloorY: (x: number, z: number, feetY: number) => number | null,
     footOffset: number

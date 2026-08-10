@@ -10,7 +10,10 @@ import {
 } from "./threeScene/alignCharacterToFloor";
 import { updateCharacter as updateCharacterInternal } from "./threeScene/updateCharacter";
 import { updateCamera as updateCameraInternal } from "./threeScene/updateCamera";
-import { buildCollisionFromRoom } from "./threeScene/buildCollisionFromRoom";
+import {
+  buildCollisionFromRoom,
+  type CollisionProxy,
+} from "./threeScene/buildCollisionFromRoom";
 import {
   createCameraCollisionMesh,
   normalizeRoomObject,
@@ -75,6 +78,8 @@ export class ThreeScene {
   cameraMargin = 0.5;
   cameraVerticalMargin = 1;
   jumpPressed = false;
+  ladderReleased = false;
+  climbInput = 0;
   isPointerDown = false;
   isBackingUp = false;
   wasBackingUp = false;
@@ -85,6 +90,7 @@ export class ThreeScene {
   /** Single merged room group (replaced THREE.LOD) */
   roomGroup: THREE.Group | null = null;
   collisionData: any = null;
+  collisionProxies: CollisionProxy[] = [];
   portalFlipbookTime = 0;
   joystickUnsubscribe: (() => void) | null = null;
   joystickInput = { x: 0, y: 0 };
@@ -195,6 +201,18 @@ export class ThreeScene {
 
         bakeAnimatedMeshesForMergedSpace(obj, animatedNodeNames);
         initPortalFlipbookVisibility(obj);
+
+        // blue beanbag collision proxy, remove the beanbag's triangles and replace with a simple box
+        const BEANBAG_PROXY_HEIGHT = 0.22;
+        const beanbag = obj.getObjectByName("beanbag2");
+        if (beanbag) {
+          const remove = new THREE.Box3().setFromObject(beanbag);
+          const solid = remove.clone();
+          solid.max.y = remove.min.y + BEANBAG_PROXY_HEIGHT;
+          this.collisionProxies = [{ remove, solid }];
+        } else {
+          console.warn("beanbag2 not found — collision proxy skipped");
+        }
 
         obj.traverse((node) => {
           if (!(node as THREE.Mesh).isMesh) return;
@@ -479,7 +497,7 @@ export class ThreeScene {
           detail: { progress: 90, stage: "Building collision mesh..." },
         }),
       );
-      const collisionData = buildCollisionFromRoom(room);
+      const collisionData = buildCollisionFromRoom(room, this.collisionProxies);
       this.collisionBounds = collisionData.bounds;
       this.collisionData = collisionData;
 
@@ -633,6 +651,11 @@ export class ThreeScene {
       } else {
         this.joystickInput = { x: 0, y: 0 };
       }
+    });
+
+    // tap joystick area for jump or unlatch ladder climb
+    window.addEventListener("joystick-jump", () => {
+      this.jumpPressed = true;
     });
 
     window.addEventListener("select-marker", (e: Event) => {

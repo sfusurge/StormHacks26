@@ -67,6 +67,9 @@ function maxSafeMoveFraction(
 ): number {
     if (!spheresOverlap(bvh, x + dx, by, z + dz)) return 1;
 
+    // if target position overlapping, binary search for the maximum safe fraction of the move that doesn't overlap
+    if (spheresOverlap(bvh, x, by, z)) return 1;
+
     let lo = 0;
     let hi = 1;
     for (let i = 0; i < 10; i++) {
