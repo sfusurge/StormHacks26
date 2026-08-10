@@ -16,6 +16,7 @@ const JUMP_VELOCITY = 3.00;
 const CLIMB_VELOCITY = 1.6;
 const SHIMMY_SPEED = 0.9;
 const CLIMB_TIMESCALE = 2.3;
+const LADDER_DETACH_TIME = 0.3;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _camForward = new THREE.Vector3();
@@ -97,7 +98,7 @@ function updateAnimation(ctx: any, speed: number, isClimbing: boolean, isGrounde
   if (ctx.currentAction) {
     if (isClimbing) {
       // stop climbing animation if no input
-      ctx.currentAction.paused = !ctx.keys["w"] && !ctx.keys["s"];
+      ctx.currentAction.paused = !ctx.climbInput;
     } else {
       // freeze idle/walk animation if not grounded
       ctx.currentAction.paused = !isGrounded;
@@ -230,8 +231,24 @@ export function updateCharacter(ctx: any, dt: number) {
   ctx.wasBackingUp = ctx.isBackingUp;
   ctx.isBackingUp = false;
 
-  ctx.isClimbing = ctx.playerBox.intersectsBox(ctx.ladderBox) || ctx.playerBox.intersectsBox(ctx.bedLadderBox);
-  ctx.climbYaw = undefined;
+  const isCurrentlyGrounded = physics.isGrounded(queryFloor, footOffset);
+
+  const inLadderVolume =
+    ctx.playerBox.intersectsBox(ctx.ladderBox) || ctx.playerBox.intersectsBox(ctx.bedLadderBox);
+
+  // only climb if by ladder and pressing up, or if already climbing and not grounded
+  const wantsClimb = !!ctx.keys['w'] || !!ctx.keys['arrowup'] || inputForward > 0.5;
+
+  ctx.ladderDetachTimer = Math.max(0, (ctx.ladderDetachTimer ?? 0) - moveDt);
+
+  if (!inLadderVolume || ctx.ladderDetachTimer > 0) {
+    ctx.isClimbing = false;
+  } else if (!ctx.isClimbing) {
+    ctx.isClimbing = wantsClimb;
+  } else {
+    // let go once we're back on solid ground and no longer climbing up
+    ctx.isClimbing = !(isCurrentlyGrounded && !wantsClimb);
+  }
 
   // Jump buffering & coyote time updates
   if (ctx.jumpPressed) {
@@ -241,7 +258,6 @@ export function updateCharacter(ctx: any, dt: number) {
     physics.jumpBufferTimer = Math.max(0, physics.jumpBufferTimer - moveDt);
   }
 
-  const isCurrentlyGrounded = physics.isGrounded(queryFloor, footOffset);
   if (isCurrentlyGrounded) {
     physics.coyoteTimer = 0.15; // 150ms coyote time window
   } else {
@@ -249,10 +265,13 @@ export function updateCharacter(ctx: any, dt: number) {
   }
 
   if (physics.jumpBufferTimer > 0) {
-    if (ctx.isClimbing && ctx.jumpPressed) {
+    if (ctx.isClimbing) {
       // jump off ladder
       physics.stopClimbing();
       ctx.isClimbing = false;
+      ctx.climbYaw = undefined;
+      // keep the ladder volume from re-latching mid-jump while up is still held
+      ctx.ladderDetachTimer = LADDER_DETACH_TIME;
       physics.jump(JUMP_VELOCITY);
       physics.jumpBufferTimer = 0;
     } else if (physics.coyoteTimer > 0) {
@@ -276,14 +295,13 @@ export function updateCharacter(ctx: any, dt: number) {
     }
     ctx.character.rotation.y = ctx.climbYaw; // keep facing ladder
 
-    if (ctx.keys["w"]) {
-      physics.climb(CLIMB_VELOCITY);
-    } else if (ctx.keys["s"]) {
-      physics.climb(-CLIMB_VELOCITY);
-    } else {
-      physics.climb(0); // freeze on ladder if no input
-    }
+    const climbingUp = wantsClimb;
+    const climbingDown = !!ctx.keys['s'] || !!ctx.keys['arrowdown'] || inputForward < -0.5;
+    ctx.climbInput = climbingUp ? 1 : climbingDown ? -1 : 0;
+
+    physics.climb(ctx.climbInput * CLIMB_VELOCITY); // 0 freezes on the ladder
   } else {
+    ctx.climbInput = 0;
     physics.stopClimbing();
     ctx.climbYaw = undefined;
   }

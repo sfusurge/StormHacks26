@@ -78,6 +78,8 @@ export class ThreeScene {
   cameraMargin = 0.5;
   cameraVerticalMargin = 1;
   jumpPressed = false;
+  ladderDetachTimer = 0;
+  climbInput = 0;
   isPointerDown = false;
   isBackingUp = false;
   wasBackingUp = false;
@@ -649,6 +651,11 @@ export class ThreeScene {
       } else {
         this.joystickInput = { x: 0, y: 0 };
       }
+    });
+
+    // tap joystick area for jump or unlatch ladder climb
+    window.addEventListener("joystick-jump", () => {
+      this.jumpPressed = true;
     });
 
     window.addEventListener("select-marker", (e: Event) => {
