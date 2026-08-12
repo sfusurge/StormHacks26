@@ -173,8 +173,25 @@ export class PlayerPhysics {
         raycaster.far = _pos.y - prevYPos + 0.15;
         const hits = raycaster.intersectObjects(collidableMeshes, true);
         if (hits.length > 0) {
-          _pos.y = hits[0].point.y - PLAYER_HEIGHT + footOffset;
-          this.velY = 0;
+          let gravityScale = 1.0;
+          const ceilingY = hits[0].point.y;
+          const headY = _pos.y - footOffset + PLAYER_HEIGHT;
+          if (headY > ceilingY) {
+              _pos.y = ceilingY - PLAYER_HEIGHT + footOffset;
+            // smooth fall
+            if (this.velY > -1.5) {
+              gravityScale = 0.6; 
+            } else {
+              gravityScale = 1.5; 
+            }
+          }
+          // ignore soft fall if the player is on the bunk bed ladder to avoid glitching
+          if (this.isClimbing) {
+            this.velY = 0;
+          }
+          else {
+            this.velY += GRAVITY * gravityScale * dt;
+          }
         }
       } else {
         const landFloor = findFloorY(_pos.x, _pos.z, _pos.y - footOffset);

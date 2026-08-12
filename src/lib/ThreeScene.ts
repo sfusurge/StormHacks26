@@ -10,7 +10,7 @@ import {
 } from "./threeScene/alignCharacterToFloor";
 import { updateCharacter as updateCharacterInternal } from "./threeScene/updateCharacter";
 import { updateCamera as updateCameraInternal } from "./threeScene/updateCamera";
-import { buildCollisionFromRoom } from "./threeScene/buildCollisionFromRoom";
+import { addColliders, addDebugBoxMesh, buildCollisionFromRoom } from "./threeScene/buildCollisionFromRoom";
 import {
   createCameraCollisionMesh,
   normalizeRoomObject,
@@ -479,13 +479,28 @@ export class ThreeScene {
           detail: { progress: 90, stage: "Building collision mesh..." },
         }),
       );
-      const collisionData = buildCollisionFromRoom(room);
-      this.collisionBounds = collisionData.bounds;
-      this.collisionData = collisionData;
+
+      const raw = buildCollisionFromRoom(room);
+      this.collisionBounds = raw.bounds;
+      this.collisionData = raw;
+
+      // ignore the window ledge on the right wall
+      const windowBox = new THREE.Box3(
+          new THREE.Vector3(-3.65, 0, -3), // lower bound
+          new THREE.Vector3(-3.65, 4, -0.2) // upper bound
+      ); 
+
+      // ignore bunk bed
+      const bedBox = new THREE.Box3(
+          new THREE.Vector3(1.05, 2.32, 3.13), // lower bound
+          new THREE.Vector3(1.05, 4, 4.9) // upper bound
+      );
+
+      const newBoundaries = addColliders(raw, [windowBox, bedBox]);
 
       // Build a single collision mesh (removed 3-level collision LOD system)
       const collisionMesh = await createCameraCollisionMesh(
-        collisionData,
+        newBoundaries,
         (p) => {
           const progress = 90 + Math.round(p * 8);
           window.dispatchEvent(

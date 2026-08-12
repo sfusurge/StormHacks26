@@ -8,7 +8,7 @@ export function buildCollisionFromRoom(root: THREE.Object3D): CollisionMapData {
     let vertexOffset = 0;
     const v = new THREE.Vector3();
 
-    root.traverse((node) => {
+    root.traverse((node) => { 
         if (!(node as THREE.Mesh).isMesh) return;
         const mesh = node as THREE.Mesh;
         const geom = mesh.geometry as THREE.BufferGeometry;
@@ -37,4 +37,37 @@ export function buildCollisionFromRoom(root: THREE.Object3D): CollisionMapData {
     const bounds = new THREE.Box3().setFromBufferAttribute(new THREE.BufferAttribute(posArr, 3));
 
     return { bounds, positions: posArr, indices: idxArr };
+}
+
+// add an extra collider wall for glitchy areas
+export function addColliders(
+    data: CollisionMapData,
+    boxes: THREE.Box3[]
+): CollisionMapData {
+    const positions = Array.from(data.positions);
+    const indices = Array.from(data.indices);
+    const vertexOffset = positions.length / 3;
+
+    for (const box of boxes) {
+        const vertexOffset = positions.length / 3;
+
+        const corners = [
+            [box.min.x, box.min.y, box.min.z],
+            [box.max.x, box.min.y, box.max.z],
+            [box.max.x, box.max.y, box.max.z],
+            [box.min.x, box.max.y, box.min.z],
+        ];
+
+        corners.forEach(([x, y, z]) => positions.push(x, y, z));
+        indices.push(
+            vertexOffset, vertexOffset + 1, vertexOffset + 2,
+            vertexOffset, vertexOffset + 2, vertexOffset + 3
+        );
+    }
+
+    return {
+        bounds: data.bounds,
+        positions: new Float32Array(positions),
+        indices: new Uint32Array(indices),
+    };
 }
