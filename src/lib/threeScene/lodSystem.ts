@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeRoomMeshesByMaterial } from './mergeRoomMeshes';
+import { isPortalMesh } from './portalFlipbook';
 
 /**
  * Creates a single merged room group (no LOD cloning).
@@ -23,7 +24,7 @@ export function createSingleMergedRoom(
   merged.name = 'MERGED_ROOM';
   mergeRoomMeshesByMaterial(
     merged,
-    (node) => animatedNodeNames.has(node.name)
+    (node) => animatedNodeNames.has(node.name) || isPortalMesh(node)
   );
 
   group.add(merged);
@@ -40,10 +41,10 @@ export function createSingleMergedRoom(
  */
 export function disposeSceneGraph(root: THREE.Object3D) {
   root.traverse(node => {
-    if ((node as THREE.Mesh).isMesh) {
-      const mesh = node as THREE.Mesh;
-      if (mesh.geometry) mesh.geometry.dispose();
-    }
+    if (!(node as THREE.Mesh).isMesh) return;
+    if (isPortalMesh(node)) return;
+    const mesh = node as THREE.Mesh;
+    if (mesh.geometry) mesh.geometry.dispose();
   });
 }
 

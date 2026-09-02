@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { CollisionMapData } from './collisionMap';
+import { isPortalMesh } from './portalFlipbook';
 
 /** Extract world-space collision from the loaded (normalized) room — matches visuals exactly. */
 export function buildCollisionFromRoom(root: THREE.Object3D): CollisionMapData {
@@ -10,6 +11,7 @@ export function buildCollisionFromRoom(root: THREE.Object3D): CollisionMapData {
 
     root.traverse((node) => {
         if (!(node as THREE.Mesh).isMesh) return;
+        if (isPortalMesh(node)) return;
         const mesh = node as THREE.Mesh;
         const geom = mesh.geometry as THREE.BufferGeometry;
         const posAttr = geom?.attributes?.position;

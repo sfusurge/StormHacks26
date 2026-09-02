@@ -20,7 +20,10 @@ import {
   bakeAnimatedMeshesForMergedSpace,
 } from "./threeScene/mergeRoomMeshes";
 import {
+  attachPortalAtlasAnimation,
   initPortalFlipbookVisibility,
+  isPortalMesh,
+  loadPortalAtlas,
   resetPortalFlipbookCache,
   syncPortalFlipbookFromTime,
 } from "./threeScene/portalFlipbook";
@@ -144,6 +147,7 @@ export class ThreeScene {
     this.camera.position.set(0, 4, 1.1);
 
     this.setupLights();
+    void loadPortalAtlas();
     this.makeRoom();
     this.makeCharacter();
     this.makeInteractable();
@@ -166,120 +170,14 @@ export class ThreeScene {
 
   makeRoom() {
     const glbUrl = new URL(
-      "../../assets/models/room_foundation.glb",
+      "../../assets/models/final.glb",
       import.meta.url,
     ).href;
 
     this.loader.load(
       glbUrl,
       (g) => {
-        window.dispatchEvent(
-          new CustomEvent("loading-progress", {
-            detail: { progress: 70, stage: "Processing geometry..." },
-          }),
-        );
-
-        const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
-        this.room = obj;
-        this.roomBox = normalizeRoomObject(obj);
-
-        // Identify animated nodes before merging
-        const animatedNodeNames = new Set<string>();
-        if (g.animations?.length) {
-          for (const clip of g.animations) {
-            for (const track of clip.tracks) {
-              animatedNodeNames.add(track.name.split(".")[0]);
-            }
-          }
-        }
-
-        bakeAnimatedMeshesForMergedSpace(obj, animatedNodeNames);
-        initPortalFlipbookVisibility(obj);
-
-        obj.traverse((node) => {
-          if (!(node as THREE.Mesh).isMesh) return;
-          const m = node as THREE.Mesh;
-          m.castShadow = false;
-          m.receiveShadow = false;
-          m.frustumCulled = !animatedNodeNames.has(node.name);
-          if (!animatedNodeNames.has(node.name)) {
-            m.matrixAutoUpdate = false;
-          }
-          if (m.geometry?.attributes.normal === undefined) {
-            m.geometry.computeVertexNormals();
-          }
-
-          const nodeNameLower = node.name.toLowerCase();
-          const mats = Array.isArray(m.material) ? m.material : [m.material];
-          for (const mat of mats) {
-            if (
-              !mat ||
-              !(mat as THREE.MeshStandardMaterial).isMeshStandardMaterial
-            )
-              continue;
-            const stdMat = mat as THREE.MeshStandardMaterial;
-            const matNameLower = (stdMat.name || "").toLowerCase();
-
-            const isWindowOrGlass =
-              nodeNameLower.includes("window") ||
-              nodeNameLower.includes("glass") ||
-              nodeNameLower.includes("pane") ||
-              matNameLower.includes("window") ||
-              matNameLower.includes("glass") ||
-              matNameLower.includes("pane") ||
-              stdMat.transparent ||
-              stdMat.opacity < 0.95 ||
-              (stdMat as any).transmission > 0;
-
-            if (isWindowOrGlass) {
-              // Blow out the windows with strong env map reflection and brightness (slightly lowered)
-              stdMat.envMapIntensity = 3.5;
-              if (stdMat.emissive) {
-                stdMat.emissiveIntensity = Math.max(
-                  stdMat.emissiveIntensity,
-                  1.2,
-                );
-              }
-            } else {
-              // Normal indoor surfaces (stairs, bookshelves, walls, etc.) stay natural
-              stdMat.envMapIntensity = 0.2;
-            }
-          }
-        });
-
-        // initialize bounding boxes
-        this.ladderBox = new THREE.Box3().setFromCenterAndSize(
-          new THREE.Vector3(4.07, 1.25, -0.56),
-          new THREE.Vector3(0.1, 2, 0.6),
-        );
-        this.bedLadderBox = new THREE.Box3().setFromCenterAndSize(
-          new THREE.Vector3(1, 3, 3.5),
-          new THREE.Vector3(0.1, 0.85, 0.35),
-        );
-        this.playerBox = new THREE.Box3();
-
-        window.dispatchEvent(
-          new CustomEvent("loading-progress", {
-            detail: { progress: 75, stage: "Creating merged room..." },
-          }),
-        );
-
-        // Single merged room (replaces LOD system that cloned the scene 2-3×)
-        this.roomGroup = createSingleMergedRoom(obj, animatedNodeNames);
-        this.scene.add(this.roomGroup);
-
-        this._alignCharacterToFloor();
-        this._positionInteractable();
-
-        window.dispatchEvent(
-          new CustomEvent("loading-progress", {
-            detail: { progress: 85, stage: "Optimizing collision..." },
-          }),
-        );
-        this._syncPlayerToFloor();
-        // Build collision from the merged mesh
-        const highDetailMesh = (this.roomGroup as any).highDetailMesh || obj;
-        void this._initCollision(highDetailMesh);
+        void this._onRoomLoaded(g);
       },
       (progress) => {
         const percent = (progress.loaded / progress.total) * 70;
@@ -294,6 +192,119 @@ export class ThreeScene {
         this.isLoading.set(false);
       },
     );
+  }
+
+  async _onRoomLoaded(g: { scene?: THREE.Object3D; scenes?: THREE.Object3D[]; animations?: THREE.AnimationClip[] }) {
+    window.dispatchEvent(
+      new CustomEvent("loading-progress", {
+        detail: { progress: 70, stage: "Processing geometry..." },
+      }),
+    );
+
+    const obj = (g.scene || g.scenes?.[0] || g) as THREE.Object3D;
+    this.room = obj;
+    this.roomBox = normalizeRoomObject(obj);
+
+    const animatedNodeNames = new Set<string>();
+    if (g.animations?.length) {
+      for (const clip of g.animations) {
+        for (const track of clip.tracks) {
+          animatedNodeNames.add(track.name.split(".")[0]);
+        }
+      }
+    }
+
+    bakeAnimatedMeshesForMergedSpace(obj, animatedNodeNames);
+    try {
+      await attachPortalAtlasAnimation(obj);
+    } catch (err) {
+      console.error("Failed to attach portal atlas animation:", err);
+    }
+    initPortalFlipbookVisibility(obj);
+
+    obj.traverse((node) => {
+      if (!(node as THREE.Mesh).isMesh) return;
+      const m = node as THREE.Mesh;
+      const portal = isPortalMesh(node);
+      m.castShadow = false;
+      m.receiveShadow = false;
+      m.frustumCulled = !animatedNodeNames.has(node.name) && !portal;
+      if (!animatedNodeNames.has(node.name) && !portal) {
+        m.matrixAutoUpdate = false;
+      }
+      if (m.geometry?.attributes.normal === undefined) {
+        m.geometry.computeVertexNormals();
+      }
+
+      if (portal) return;
+
+      const nodeNameLower = node.name.toLowerCase();
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      for (const mat of mats) {
+        if (
+          !mat ||
+          !(mat as THREE.MeshStandardMaterial).isMeshStandardMaterial
+        )
+          continue;
+        const stdMat = mat as THREE.MeshStandardMaterial;
+        const matNameLower = (stdMat.name || "").toLowerCase();
+
+        const isWindowOrGlass =
+          nodeNameLower.includes("window") ||
+          nodeNameLower.includes("glass") ||
+          nodeNameLower.includes("pane") ||
+          matNameLower.includes("window") ||
+          matNameLower.includes("glass") ||
+          matNameLower.includes("pane") ||
+          stdMat.transparent ||
+          stdMat.opacity < 0.95 ||
+          (stdMat as any).transmission > 0;
+
+        if (isWindowOrGlass) {
+          stdMat.envMapIntensity = 3.5;
+          if (stdMat.emissive) {
+            stdMat.emissiveIntensity = Math.max(
+              stdMat.emissiveIntensity,
+              1.2,
+            );
+          }
+        } else {
+          stdMat.envMapIntensity = 0.2;
+        }
+      }
+    });
+
+    this.ladderBox = new THREE.Box3().setFromCenterAndSize(
+      new THREE.Vector3(4.07, 1.25, -0.56),
+      new THREE.Vector3(0.1, 2, 0.6),
+    );
+    this.bedLadderBox = new THREE.Box3().setFromCenterAndSize(
+      new THREE.Vector3(1, 3, 3.5),
+      new THREE.Vector3(0.1, 0.85, 0.35),
+    );
+    this.playerBox = new THREE.Box3();
+
+    window.dispatchEvent(
+      new CustomEvent("loading-progress", {
+        detail: { progress: 75, stage: "Creating merged room..." },
+      }),
+    );
+
+    this.roomGroup = createSingleMergedRoom(obj, animatedNodeNames);
+    this.scene.add(this.roomGroup);
+    initPortalFlipbookVisibility(this.roomGroup);
+
+    this._alignCharacterToFloor();
+    this._positionInteractable();
+
+    window.dispatchEvent(
+      new CustomEvent("loading-progress", {
+        detail: { progress: 85, stage: "Optimizing collision..." },
+      }),
+    );
+    this._syncPlayerToFloor();
+    const highDetailMesh = (this.roomGroup as any).highDetailMesh || obj;
+    void this._initCollision(highDetailMesh);
   }
 
   async makeCharacter() {

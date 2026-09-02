@@ -1,15 +1,32 @@
 const fs = require('fs');
 const path = require('path');
 
-const originalPath = path.resolve(__dirname, '../assets/models/room_foundation.glb.bak');
-const outputPath = path.resolve(__dirname, '../assets/models/room_foundation.glb');
+const originalPath = path.resolve(__dirname, '../assets/models/final.glb.bak');
+const outputPath = path.resolve(__dirname, '../assets/models/final.glb');
+
+const TEXTURE_SLOTS = [
+  ['getBaseColorTexture', 'setBaseColorTexture', 'baseColor'],
+  ['getEmissiveTexture', 'setEmissiveTexture', 'emissive'],
+  ['getNormalTexture', 'setNormalTexture', 'normal'],
+  ['getOcclusionTexture', 'setOcclusionTexture', 'occlusion'],
+  ['getMetallicRoughnessTexture', 'setMetallicRoughnessTexture', 'metallicRoughness'],
+];
 
 async function main() {
+  if (!fs.existsSync(originalPath)) {
+    if (!fs.existsSync(outputPath)) {
+      throw new Error('Neither final.glb.bak nor final.glb found');
+    }
+    console.log('Creating backup of original final.glb...');
+    fs.copyFileSync(outputPath, originalPath);
+  }
+
   console.log('Loading gltf-transform APIs and Draco dependencies...');
   const { NodeIO } = await import('@gltf-transform/core');
-  const { resize, draco } = await import('@gltf-transform/functions');
+  const { textureCompress, draco } = await import('@gltf-transform/functions');
   const { ALL_EXTENSIONS } = await import('@gltf-transform/extensions');
   const draco3d = require('draco3dgltf');
+  const sharp = require('sharp');
 
   console.log('Reading original room GLB...');
   const io = new NodeIO()
@@ -40,7 +57,7 @@ async function main() {
 
   // Save portal textures details and detach them from materials
   const savedPortalData = [];
-  portalTextures.forEach((tex, idx) => {
+  portalTextures.forEach((tex) => {
     const data = {
       name: tex.getName(),
       mimeType: tex.getMimeType(),
@@ -48,65 +65,58 @@ async function main() {
       slots: []
     };
 
-    // Find all materials using this texture and detach them
     const materials = root.listMaterials();
     materials.forEach(mat => {
-      if (mat.getBaseColorTexture() === tex) {
-        data.slots.push({ material: mat, slot: 'baseColor' });
-        mat.setBaseColorTexture(null);
-      }
-      if (mat.getEmissiveTexture() === tex) {
-        data.slots.push({ material: mat, slot: 'emissive' });
-        mat.setEmissiveTexture(null);
-      }
-      if (mat.getNormalTexture() === tex) {
-        data.slots.push({ material: mat, slot: 'normal' });
-        mat.setNormalTexture(null);
-      }
+      TEXTURE_SLOTS.forEach(([getter, setter, slot]) => {
+        if (typeof mat[getter] === 'function' && mat[getter]() === tex) {
+          data.slots.push({ material: mat, slot });
+          mat[setter](null);
+        }
+      });
     });
 
     savedPortalData.push(data);
-    
+
     // Dispose of the texture so it is removed from the document before resizing
     tex.dispose();
   });
 
   console.log(`Detached ${savedPortalData.length} portal texture(s) from materials.`);
 
-  console.log('Resizing all other textures to 256x256...');
-  // Resize remaining textures
+  console.log('Resizing remaining textures to 256x256 and converting to WebP...');
   await document.transform(
-    resize({ size: [256, 256] })
+    textureCompress({
+      encoder: sharp,
+      targetFormat: 'webp',
+      resize: [256, 256],
+    })
   );
 
   console.log('Restoring protected portal textures...');
-  // Restore and re-attach portal textures
   savedPortalData.forEach(data => {
     const newTex = document.createTexture(data.name)
       .setImage(data.image)
       .setMimeType(data.mimeType);
 
     data.slots.forEach(({ material, slot }) => {
-      if (slot === 'baseColor') {
-        material.setBaseColorTexture(newTex);
-      } else if (slot === 'emissive') {
-        material.setEmissiveTexture(newTex);
-      } else if (slot === 'normal') {
-        material.setNormalTexture(newTex);
+      const setter = TEXTURE_SLOTS.find((entry) => entry[2] === slot)?.[1];
+      if (setter) {
+        material[setter](newTex);
       }
     });
     console.log(`-> Restored and re-attached "${data.name}" to ${data.slots.length} material slots.`);
   });
 
   console.log('Applying Draco geometry compression...');
-  // Re-apply draco compression
   await document.transform(
     draco()
   );
 
   console.log('Writing optimized GLB...');
   await io.write(outputPath, document);
-  console.log('Optimization complete!');
+  const srcSize = fs.statSync(originalPath).size;
+  const dstSize = fs.statSync(outputPath).size;
+  console.log(`Optimization complete! ${ (srcSize / 1024 / 1024).toFixed(2) } MB → ${ (dstSize / 1024 / 1024).toFixed(2) } MB`);
 }
 
 main().catch(err => {
