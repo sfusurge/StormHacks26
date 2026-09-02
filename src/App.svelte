@@ -9,6 +9,15 @@
   import { activeDialogueStore } from './stores/markers';
   import { ThreeScene } from './lib/ThreeScene';
 
+  const bgmUrl = new URL(
+    '../assets/1-12 Noon (~Sunny Weather~).mp3',
+    import.meta.url,
+  ).href;
+  const BGM_VOLUME = 0.50;
+
+  let bgm: HTMLAudioElement | null = null;
+  let unlockBgm: (() => void) | null = null;
+
   let show = false;
   let currentComponent: any = null;
   let scene: ThreeScene | null = null;
@@ -55,9 +64,33 @@
 
     scene.isLoading.subscribe(value => {
       isLoading = value;
+      if (!value) void bgm?.play().catch(() => {});
     });
 
-    return () => { scene?.dispose(); };
+    bgm = new Audio(bgmUrl);
+    bgm.loop = true;
+    bgm.volume = BGM_VOLUME;
+    bgm.preload = 'auto';
+
+    unlockBgm = () => {
+      void bgm?.play().catch(() => {});
+    };
+    window.addEventListener('pointerdown', unlockBgm, { once: true });
+    window.addEventListener('keydown', unlockBgm, { once: true });
+    void bgm.play().catch(() => {});
+
+    return () => {
+      if (unlockBgm) {
+        window.removeEventListener('pointerdown', unlockBgm);
+        window.removeEventListener('keydown', unlockBgm);
+      }
+      if (bgm) {
+        bgm.pause();
+        bgm.src = '';
+        bgm = null;
+      }
+      scene?.dispose();
+    };
   });
   
   onDestroy(() => {
